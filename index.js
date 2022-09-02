@@ -66,6 +66,40 @@ function getCorrectSize(height) {
 
 const FONT_SCALE = getFontScale()
 
+function getCoveringAlpha(coverX, coverY, coverWidth, coverHeight, baseX, baseY, baseWidth, baseHeight) {
+    let interMinX = Math.max(coverX, baseX)
+    let interMaxX = Math.min(coverX + coverWidth, baseX + baseWidth)
+    let interMinY = Math.max(coverY, baseY)
+    let interMaxY = Math.min(coverY + coverHeight, baseY + baseHeight)
+    
+    // if (interMinX < interMaxX && interMinY < interMaxY) {
+    //     let coverMidX = coverX + coverWidth / 2
+    //     let coverMidY = coverY + coverHeight / 2
+    //     let baseMidX = baseX + baseWidth / 2
+    //     let baseMidY = baseY + baseHeight / 2
+
+    //     let distX = Math.abs(coverMidX - baseMidX)
+    //     let distY = Math.abs(coverMidY - baseMidY)
+
+    //     let ratioX = distX / ((coverWidth + baseWidth) / 2)
+    //     let ratioY = distY / ((coverHeight + baseHeight) / 2)
+
+    //     return Math.max(ratioX, ratioY)
+    // }
+    
+    if (interMinX < interMaxX && interMinY < interMaxY) {
+        let interX = interMaxX - interMinX
+        let interY = interMaxY - interMinY
+
+        let ratioX = 1 - interX / Math.min(coverWidth, baseWidth)
+        let ratioY = 1 - interY / Math.min(coverHeight, baseHeight)
+
+        return Math.max(ratioX, ratioY)
+    }
+
+    return 1
+}
+
 // Spriting
 class Hexagon {
     constructor(x = 0, y = 0, fill = "#0A3300", edge = EDGE, rise = RISE, run = RUN) {
@@ -77,13 +111,14 @@ class Hexagon {
         this.run = run
 
         this.parent = null
+        this.snapFill = null
     }
 
-    render() {    
+    render() {
         let absX = this.x + (this.parent?.absX ?? 0)
         let absY = this.y + (this.parent?.absY ?? 0)
         ctx.globalAlpha = 1
-        ctx.fillStyle = this.fill
+        ctx.fillStyle = this.snapFill ?? this.fill
         ctx.strokeStyle = "#33FF00"
         ctx.beginPath()
         // ctx.moveTo(absX - (this.edge / 2 + this.run), absY)
@@ -101,6 +136,8 @@ class Hexagon {
         ctx.closePath()
         ctx.fill()
         ctx.stroke()
+
+        this.snapFill = null
     }
 }
 
@@ -113,23 +150,39 @@ class TextSprite {
 
         this.parent = null
         this.alpha = 1
-    }
+        this.snapAlpha = null
 
-    render() {
-        let absX = this.x + (this.parent?.absX ?? 0)
-        let absY = this.y + (this.parent?.absY ?? 0)
-
-        ctx.globalAlpha = this.alpha
         ctx.fillStyle = this.fill
         ctx.textBaseline = "middle"
         ctx.textAlign = "center"
 
         ctx.font = `${getCorrectSize(1.8 * RISE)}px serif`
 
-        ctx.fillText(this.text, absX, absY)
-        ctx.alpha = 1
+        this.measure = ctx.measureText(this.text)
+    }
 
-        this.alpha = 1
+    render() {
+        let absX = this.x + (this.parent?.absX ?? 0)
+        let absY = this.y + (this.parent?.absY ?? 0)
+
+        ctx.globalAlpha = this.snapAlpha ?? this.alpha
+        ctx.fillStyle = this.fill
+        ctx.textBaseline = "middle"
+        ctx.textAlign = "center"
+
+        ctx.font = `${getCorrectSize(1.8 * RISE)}px serif`
+
+        // if (this.measure === null) this.measure = ctx.measureText(this.text)
+        ctx.fillText(this.text, absX, absY)
+        // ctx.strokeRect(absX - this.measure.actualBoundingBoxLeft,
+        //                absY - this.measure.actualBoundingBoxAscent,
+        //                this.measure.actualBoundingBoxLeft + this.measure.actualBoundingBoxRight,
+        //                this.measure.actualBoundingBoxAscent + this.measure.actualBoundingBoxDescent)
+
+        ctx.globalAlpha = 1
+
+
+        this.snapAlpha = null
     }
 }
 
@@ -268,6 +321,34 @@ class HexRoom {
         return [row, col]
     }
 
+    getCells(x, y, w, h) {
+        let minX = x, minY = y
+        let maxX = x + w, maxY = y + h
+
+
+        let minCol = Math.max(Math.floor(minX / (EDGE + RUN)) - 1, 0)
+        let maxCol = Math.min(Math.floor(maxX / (EDGE + RUN)), this.numRows - 1)
+
+        let minRowBlock = Math.floor(minY / RISE)
+        let maxRowBlock = Math.floor(maxY / RISE)
+
+        let cells = []
+
+        for (let col = minCol; col <= maxCol; col++) {
+            let minTog = (this.parity + minRowBlock + col) % 2
+            let maxTog = (this.parity + maxRowBlock + col) % 2
+
+            let rowMin = minRowBlock - minTog
+            let rowMax = maxRowBlock - maxTog
+
+            for (let row = rowMin; row <= rowMax; row += 2) {
+                if (0 <= row && row < this.numRows) cells.push([row, col])
+            }
+        }
+
+        return cells
+    }
+
     get(layer, row, col) {
         return this.grids[layer].get(row, col)
     }
@@ -283,8 +364,37 @@ class HexRoom {
             for (let col = off; col < this.numCols; col += 2) {
                 let entity = this.grids["ENTITY"].get(row, col)
                 if (entity !== null) {
-                    let text = this.grids["TEXT"].get(row, col)
-                    text.alpha = 0
+                    // let text = this.grids["TEXT"].get(row, col)
+                    // text.snapAlpha = 0
+
+                    if (entity.animation !== null && "sprite" in entity) {
+                        let x = entity.x + EDGE / 2 + RUN
+                        let y = entity.y + RISE
+                        let entityMeasure = entity.sprite.measure
+                        let cells = this.getCells(x - entityMeasure.actualBoundingBoxLeft,
+                                                  y - entityMeasure.actualBoundingBoxAscent,
+                                                  entityMeasure.actualBoundingBoxLeft + entityMeasure.actualBoundingBoxRight,
+                                                  entityMeasure.actualBoundingBoxAscent + entityMeasure.actualBoundingBoxDescent)
+                        for (let cell of cells) {
+                            let hex = this.grids["GROUND"].get(cell[0], cell[1])
+                            let text = this.grids["TEXT"].get(cell[0], cell[1])
+                            let textX = text.x + EDGE / 2 + RUN
+                            let textY = text.y + RISE
+                            let textMeasure = text.measure
+
+                            let alpha = getCoveringAlpha(x - entityMeasure.actualBoundingBoxLeft,
+                                                         y - entityMeasure.actualBoundingBoxAscent,
+                                                         entityMeasure.actualBoundingBoxLeft + entityMeasure.actualBoundingBoxRight,
+                                                         entityMeasure.actualBoundingBoxAscent + entityMeasure.actualBoundingBoxDescent,
+                                                         textX - textMeasure.actualBoundingBoxLeft,
+                                                         textY - textMeasure.actualBoundingBoxAscent,
+                                                         textMeasure.actualBoundingBoxLeft + textMeasure.actualBoundingBoxRight,
+                                                         textMeasure.actualBoundingBoxAscent + textMeasure.actualBoundingBoxDescent)
+
+                            // hex.snapFill = "#664600"
+                            text.snapAlpha = alpha
+                        }
+                    }
                 }
             }
         }
