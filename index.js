@@ -31,6 +31,9 @@ function drawDots(initX, initY, step) {
     }
 }
 
+// SFX and music
+let bkgMusic = document.getElementById("background_music")
+
 // Mouse movement
 const mouseLoc = {
     x: null,
@@ -441,6 +444,7 @@ class TextEntity extends Entity {
     }
 }
 
+// Animations
 class KeyFrame {
     constructor(timestamp, update = null) {
         this.timestamp = timestamp
@@ -525,14 +529,62 @@ class HexMoveAnimation extends KeyframeAnimation {
         }
 
         function tweenFn(timestamp) {
-            entity.x = (1 - timestamp / duration) * startX + (timestamp / duration) * destX
-            entity.y = (1 - timestamp / duration) * startY + (timestamp / duration) * destY
+            // let progress = timestamp / duration
+            let progress = (1 - Math.cos((timestamp / duration) * Math.PI)) / 2
+            entity.x = (1 - progress) * startX + (progress) * destX
+            entity.y = (1 - progress) * startY + (progress) * destY
         }
 
         function endFn() {
             console.log("Move ended!")
             hexgrid.set(entity.row, entity.col, null)
             hexgrid.set(destRow, destCol, entity)
+            entity.animation = null
+        }
+
+        let keyframes = [new KeyFrame(0, startFn), new KeyFrame(duration, endFn)]
+        let tweens = [new Tween(duration, tweenFn)]
+
+        super(keyframes, tweens)
+
+        this.entity = entity
+        this.startX = startX
+        this.startY = startY
+        this.destX = destX
+        this.destY = destY
+        this.duration = duration
+    }
+}
+
+class HexJiggleAnimation extends KeyframeAnimation {
+    constructor(entity, hexgrid, destRow, destCol, duration) {
+        if (entity.parent !== hexgrid) {
+            console.log("Error! HexMove animation called on entity with incorrect grid!")
+        }
+
+        let startX = entity.x
+        let startY = entity.y
+        let destX = destCol * (EDGE + RUN)
+        let destY = destRow * RISE
+
+        let dist = Math.hypot(destX - startX, destY - startY)
+
+        destX = startX + Math.round((destX - startX) * 8 / dist)
+        destY = startY + Math.round((destY - startY) * 8 / dist)
+
+        function startFn() {
+            console.log("Beginning move!")
+        }
+
+        function tweenFn(timestamp) {
+            // let progress = Math.sin((timestamp / duration) * Math.PI)
+            let progress = (1 - Math.cos((timestamp / duration) * 2 * Math.PI)) / 2
+            entity.x = (1 - progress) * startX + (progress) * destX
+            entity.y = (1 - progress) * startY + (progress) * destY
+        }
+
+        function endFn() {
+            console.log("Move ended!")
             entity.animation = null
         }
 
@@ -620,7 +672,7 @@ function updateLoop(timestamp) {
 
     prevTime = currTime
     currTime = timestamp
-    let delta = (currTime - prevTime) / 1000
+    let delta = (currTime - prevTime)
 
     hexroom.x = Math.floor((canvas.width - hexroom.pxWidth) / 2)
     hexroom.y = Math.floor((canvas.height - hexroom.pxHeight) / 2)
@@ -651,19 +703,26 @@ function updateLoop(timestamp) {
     }
 
     if (player.animation === null) {
-        let opencells = []
-        if (isEmpty(player.row + 2, player.col)) opencells.push([player.row + 2, player.col])
-        if (isEmpty(player.row + 1, player.col + 1)) opencells.push([player.row + 1, player.col + 1])
-        if (isEmpty(player.row - 1, player.col + 1)) opencells.push([player.row - 1, player.col + 1])
-        if (isEmpty(player.row - 2, player.col)) opencells.push([player.row - 2, player.col])
-        if (isEmpty(player.row - 1, player.col - 1)) opencells.push([player.row - 1, player.col - 1])
-        if (isEmpty(player.row + 1, player.col - 1)) opencells.push([player.row + 1, player.col - 1])
+        let destCells = [
+            [player.row + 2, player.col],
+            [player.row + 1, player.col + 1],
+            [player.row - 1, player.col + 1],
+            [player.row - 2, player.col],
+            [player.row - 1, player.col - 1],
+            [player.row + 1, player.col - 1]
+        ]
 
-        dest = opencells[Math.floor(Math.random() * opencells.length)]
+        let dest = destCells[Math.floor(Math.random() * destCells.length)]
 
-        let anim = new HexMoveAnimation(player, hexroom.grids["ENTITY"], dest[0], dest[1], 1.0)
-        player.animation = anim
-        player.animation.start()
+        if (isEmpty(dest[0], dest[1])) {
+            let anim = new HexMoveAnimation(player, hexroom.grids["ENTITY"], dest[0], dest[1], 1000)
+            player.animation = anim
+            player.animation.start()
+        } else {
+            let anim = new HexJiggleAnimation(player, hexroom.grids["ENTITY"], dest[0], dest[1], 400)
+            player.animation = anim
+            player.animation.start()
+        }
     }
 
     renderFrame()
@@ -686,6 +745,10 @@ function initialize(timestamp) {
     let anim = new HexMoveAnimation(player, hexroom.grids["ENTITY"], 5, 3 + parity, 1.0)
     player.animation = anim
     player.animation.start()
+
+    bkgMusic.volume = 0.2
+    bkgMusic.loop = true
+    bkgMusic.play()
     
     renderFrame()
 
