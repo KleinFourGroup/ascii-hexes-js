@@ -6,19 +6,44 @@
         <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     </head>
     <body>
-        <style>
+        <style id="global-style">
             body {
                 overflow: hidden;
                 padding: 0;
                 margin: 0;
-
-                cursor: none;
             }
 
             .resources {
                 display: none;
             }
+
+            .init-pane {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+
+                background: #282828;
+                color: #33FF00;
+                text-align: center;
+                font-size: 5em;
+            }
+
+            .init-pane p {
+                position: relative;
+                margin: 0;
+                top: 50%;
+                transform: translateY(-50%)
+            }
+
+            .no-cursor {
+                cursor: none;
+            }
         </style>
+        <div class="init-pane" id="pane">
+            <p>Click to initialize</p>
+        </div>
         <div class="resources">
             <audio id="background_music" src="./media/Retro Dreamscape - Twin Musicom.mp3"></audio>
         </div>

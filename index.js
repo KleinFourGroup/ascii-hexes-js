@@ -1,6 +1,9 @@
 // Configs
 const EDGE = 30, RISE = 26, RUN = 15
 
+// Body
+const bodyHTML = document.querySelector("body")
+
 // Timing
 let currTime = 0, prevTime = 0
 
@@ -33,6 +36,20 @@ function drawDots(initX, initY, step) {
 
 // SFX and music
 let bkgMusic = document.getElementById("background_music")
+
+// Initialization
+let pane = document.getElementById("pane")
+
+pane.addEventListener("click", (event) => {
+    console.log("User interaction!")
+    bodyHTML.classList.add("no-cursor")
+    // bodyHTML.style.cursor = "none"
+    bkgMusic.volume = 0.2
+    bkgMusic.loop = true
+    bkgMusic.play()
+    pane.remove()
+    requestAnimationFrame(initialize)
+})
 
 // Mouse movement
 const mouseLoc = {
@@ -395,7 +412,7 @@ class HexRoom {
                                                          textMeasure.actualBoundingBoxAscent + textMeasure.actualBoundingBoxDescent)
 
                             // hex.snapFill = "#664600"
-                            text.snapAlpha = alpha
+                            text.snapAlpha = Math.min(text.snapAlpha ?? 1, alpha)
                         }
                     }
                 }
@@ -463,8 +480,15 @@ class Tween {
         this.elapsedTime = 0
     }
 
-    update(delta) {
+    updateDelta(delta) {
         this.elapsedTime += delta
+        this.tweenFn((this.elapsedTime > this.duration) ? this.duration : this.elapsedTime)
+
+        return this.duration - this.elapsedTime
+    }
+
+    updateTimestamp(timestamp) {
+        this.elapsedTime = timestamp
         this.tweenFn((this.elapsedTime > this.duration) ? this.duration : this.elapsedTime)
 
         return this.duration - this.elapsedTime
@@ -472,44 +496,120 @@ class Tween {
 }
 
 class KeyframeAnimation {
-    constructor(keyframes, tweens) {
-        if (keyframes.length !== tweens.length + 1) {
-            console.log(`Error!  Animation consists of ${keyframes.length} keyframes and ${tweens.length} tweens!`)
+    static checkInputs(keyframes, tweens) {
+        console.assert(keyframes.length === tweens.length + 1,
+            `Animation consists of ${keyframes.length} keyframes and ${tweens.length} tweens!`)
+        console.assert(keyframes[0].timestamp === 0,
+            `Animation's initial keyframe is at ${keyframes[0].timestamp} ms!`)
+
+        let runningDuration = 0
+        for (let i = 0; i < tweens.length; i++) {
+            console.assert(Number.isInteger(tweens[i].duration),
+                `Animation's tween has noniteger duration ${tweens[i].duration} ms!`)
+            runningDuration += tweens[i].duration
+            console.assert(keyframes[i + 1].timestamp === runningDuration,
+                `Animation's keyframe is at ${keyframes[i + 1].timestamp} ms (should be ${runningDuration} ms)!`)
         }
+    }
+
+    constructor(keyframes, tweens, loops = false) {
+        KeyframeAnimation.checkInputs(keyframes, tweens)
 
         this.keyframes = keyframes
         this.tweens = tweens
+        this.duration = this.keyframes[this.keyframes.length - 1].timestamp
+        this.loops = loops
         this.elapsedTime = 0
         this.lastKeyframeIndex = -1
     }
 
     start() {
         let firstKeyframe = this.keyframes[0]
-        if (firstKeyframe.timestamp !== 0) {
-            console.log(`Error!  Animation start() without initial keyframe!`)
-        }
 
         firstKeyframe.execute()
 
         this.lastKeyframeIndex = 0
     }
 
-    update(delta) {
+    updateLogic(delta) {
         this.elapsedTime += delta
 
-        for (let i = this.lastKeyframeIndex + 1; i < this.keyframes.length && this.keyframes[i].timestamp <= this.elapsedTime; i++) {
-            this.keyframes[i].execute()
-            this.lastKeyframeIndex = i
-            delta = this.elapsedTime - this.keyframes[i].timestamp
+        do {
+            for (let i = this.lastKeyframeIndex + 1; i < this.keyframes.length && this.keyframes[i].timestamp <= this.elapsedTime; i++) {
+                this.keyframes[i].execute()
+                this.lastKeyframeIndex = i
+            }
+            if (this.lastKeyframeIndex >= this.tweens.length) {
+                if (this.loops) {
+                    this.elapsedTime -= this.duration
+                    this.start()
+                } else {
+                    break
+                }
+            }
+        } while (this.elapsedTime >= this.duration)
+
+        return this.duration - this.elapsedTime
+    }
+
+    // update(delta) {
+    //     this.elapsedTime += delta
+
+    //     for (let i = this.lastKeyframeIndex + 1; i < this.keyframes.length && this.keyframes[i].timestamp <= this.elapsedTime; i++) {
+    //         this.keyframes[i].execute()
+    //         this.lastKeyframeIndex = i
+    //         delta = this.elapsedTime - this.keyframes[i].timestamp
+    //     }
+
+    //     if (this.lastKeyframeIndex < 0 || this.lastKeyframeIndex >= this.tweens.length) {
+    //         return this.keyframes[this.tweens.length].timestamp - this.elapsedTime
+    //     }
+
+    //     this.tweens[this.lastKeyframeIndex].updateDelta(delta)
+
+    //     return this.keyframes[this.tweens.length].timestamp - this.elapsedTime
+    // }
+
+    update(delta) {
+        let ret = this.updateLogic(delta)
+
+        if (this.lastKeyframeIndex >= 0 && this.lastKeyframeIndex < this.tweens.length) {
+            let tweenTime = this.elapsedTime - this.keyframes[this.lastKeyframeIndex].timestamp
+            this.tweens[this.lastKeyframeIndex].updateTimestamp(tweenTime)
         }
 
-        if (this.lastKeyframeIndex < 0 || this.lastKeyframeIndex >= this.tweens.length) {
-            return this.keyframes[this.tweens.length].timestamp - this.elapsedTime
+        return ret
+    }
+}
+
+class IdleAnimation extends KeyframeAnimation {
+    constructor(entity, magnitude, duration) {
+
+        let startY = entity.y
+
+        function startFn() {
+            // console.log("Beginning move!")
         }
 
-        this.tweens[this.lastKeyframeIndex].update(delta)
+        function tweenFn(timestamp) {
+            // let progress = timestamp / duration
+            let progress = (timestamp / duration) * 2 * Math.PI
+            entity.y = startY + magnitude * Math.sin(progress)
+        }
 
-        return this.keyframes[this.tweens.length].timestamp - this.elapsedTime
+        function endFn() {
+            // console.log("Move ended!")
+        }
+
+        let keyframes = [new KeyFrame(0, startFn), new KeyFrame(duration, endFn)]
+        let tweens = [new Tween(duration, tweenFn)]
+
+        super(keyframes, tweens, true)
+
+        this.entity = entity
+        this.startY = startY
+        this.magnitude = magnitude
+        this.duration = duration
     }
 }
 
@@ -525,7 +625,7 @@ class HexMoveAnimation extends KeyframeAnimation {
         let destY = destRow * RISE
 
         function startFn() {
-            console.log("Beginning move!")
+            // console.log("Beginning move!")
         }
 
         function tweenFn(timestamp) {
@@ -536,7 +636,7 @@ class HexMoveAnimation extends KeyframeAnimation {
         }
 
         function endFn() {
-            console.log("Move ended!")
+            // console.log("Move ended!")
             hexgrid.set(entity.row, entity.col, null)
             hexgrid.set(destRow, destCol, entity)
             entity.animation = null
@@ -573,7 +673,7 @@ class HexJiggleAnimation extends KeyframeAnimation {
         destY = startY + Math.round((destY - startY) * 8 / dist)
 
         function startFn() {
-            console.log("Beginning move!")
+            // console.log("Beginning move!")
         }
 
         function tweenFn(timestamp) {
@@ -584,7 +684,7 @@ class HexJiggleAnimation extends KeyframeAnimation {
         }
 
         function endFn() {
-            console.log("Move ended!")
+            // console.log("Move ended!")
             entity.animation = null
         }
 
@@ -649,8 +749,38 @@ function makeHexRoom(hexroom) {
 }
 
 let player = new TextEntity("@", 0, 0)
+let idleEntity = new TextEntity("零", 0, 0)
 
 let loc = [null, null]
+
+function getNextAnimation() {
+    function isEmpty(row, col) {
+        if (0 > row || row >= hexroom.numRows) return false
+        if (0 > col || col >= hexroom.numCols) return false
+        return (hexroom.get("ENTITY", row, col) === null)
+    }
+
+    let destCells = [
+        [player.row + 2, player.col],
+        [player.row + 1, player.col + 1],
+        [player.row - 1, player.col + 1],
+        [player.row - 2, player.col],
+        [player.row - 1, player.col - 1],
+        [player.row + 1, player.col - 1]
+    ]
+
+    let dest = destCells[Math.floor(Math.random() * destCells.length)]
+
+    if (isEmpty(dest[0], dest[1])) {
+        let anim = new HexMoveAnimation(player, hexroom.grids["ENTITY"], dest[0], dest[1], 1000)
+        player.animation = anim
+        player.animation.start()
+    } else {
+        let anim = new HexJiggleAnimation(player, hexroom.grids["ENTITY"], dest[0], dest[1], 400)
+        player.animation = anim
+        player.animation.start()
+    }
+}
 
 function renderFrame() {
     clearCanvas("#282828")
@@ -696,34 +826,11 @@ function updateLoop(timestamp) {
 
     player.animation.update(delta)
 
-    function isEmpty(row, col) {
-        if (0 > row || row >= hexroom.numRows) return false
-        if (0 > col || col >= hexroom.numCols) return false
-        return (hexroom.get("ENTITY", row, col) === null)
-    }
-
     if (player.animation === null) {
-        let destCells = [
-            [player.row + 2, player.col],
-            [player.row + 1, player.col + 1],
-            [player.row - 1, player.col + 1],
-            [player.row - 2, player.col],
-            [player.row - 1, player.col - 1],
-            [player.row + 1, player.col - 1]
-        ]
-
-        let dest = destCells[Math.floor(Math.random() * destCells.length)]
-
-        if (isEmpty(dest[0], dest[1])) {
-            let anim = new HexMoveAnimation(player, hexroom.grids["ENTITY"], dest[0], dest[1], 1000)
-            player.animation = anim
-            player.animation.start()
-        } else {
-            let anim = new HexJiggleAnimation(player, hexroom.grids["ENTITY"], dest[0], dest[1], 400)
-            player.animation = anim
-            player.animation.start()
-        }
+        getNextAnimation()
     }
+
+    idleEntity.animation.update(delta)
 
     renderFrame()
 
@@ -740,15 +847,15 @@ function initialize(timestamp) {
     hexroom.y = Math.floor((canvas.height - hexroom.pxHeight) / 2)
 
     hexroom.set("ENTITY", 4, 2 + parity, player)
-    hexroom.set("ENTITY", 6, 2 + parity, new TextEntity("零", 0, 4 * RISE))
+    hexroom.set("ENTITY", 6, 2 + parity, idleEntity)
 
-    let anim = new HexMoveAnimation(player, hexroom.grids["ENTITY"], 5, 3 + parity, 1.0)
-    player.animation = anim
-    player.animation.start()
+    getNextAnimation()
+    idleEntity.animation = new IdleAnimation(idleEntity, 5, 6000)
+    idleEntity.animation.start()
 
-    bkgMusic.volume = 0.2
-    bkgMusic.loop = true
-    bkgMusic.play()
+    // bkgMusic.volume = 0.2
+    // bkgMusic.loop = true
+    // bkgMusic.play()
     
     renderFrame()
 
@@ -757,6 +864,3 @@ function initialize(timestamp) {
 
 // hexgrid.render()
 // textgrid.render()
-
-
-requestAnimationFrame(initialize)
