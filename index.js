@@ -80,17 +80,28 @@ function getFontScale() {
     return 100 / Math.ceil(h)
 }
 
+function converTextMeasurement(textMeasurement) {
+    let box = {
+        "up": textMeasurement.actualBoundingBoxAscent,
+        "down": textMeasurement.actualBoundingBoxDescent,
+        "left": textMeasurement.actualBoundingBoxLeft,
+        "right": textMeasurement.actualBoundingBoxRight
+    }
+
+    return box
+}
+
 function getCorrectSize(height) {
     return Math.floor(height * FONT_SCALE)
 }
 
 const FONT_SCALE = getFontScale()
 
-function getCoveringAlpha(coverX, coverY, coverWidth, coverHeight, baseX, baseY, baseWidth, baseHeight) {
-    let interMinX = Math.max(coverX, baseX)
-    let interMaxX = Math.min(coverX + coverWidth, baseX + baseWidth)
-    let interMinY = Math.max(coverY, baseY)
-    let interMaxY = Math.min(coverY + coverHeight, baseY + baseHeight)
+function getCoveringAlpha(coverX, coverY, coverBox, baseX, baseY, baseBox) {
+    let interMinX = Math.max(coverX - coverBox.left, baseX - baseBox.left)
+    let interMaxX = Math.min(coverX + coverBox.right, baseX + baseBox.right)
+    let interMinY = Math.max(coverY - coverBox.up, baseY - baseBox.up)
+    let interMaxY = Math.min(coverY + coverBox.down, baseY + baseBox.down)
     
     // if (interMinX < interMaxX && interMinY < interMaxY) {
     //     let coverMidX = coverX + coverWidth / 2
@@ -106,18 +117,29 @@ function getCoveringAlpha(coverX, coverY, coverWidth, coverHeight, baseX, baseY,
 
     //     return Math.max(ratioX, ratioY)
     // }
+
+    let boxAlpha = 1
     
     if (interMinX < interMaxX && interMinY < interMaxY) {
         let interX = interMaxX - interMinX
         let interY = interMaxY - interMinY
 
+        let coverWidth = coverBox.left + coverBox.right
+        let coverHeight = coverBox.up + coverBox.down
+        let baseWidth = baseBox.left + baseBox.right
+        let baseHeight = baseBox.up + baseBox.down
+
         let ratioX = 1 - interX / Math.min(coverWidth, baseWidth)
         let ratioY = 1 - interY / Math.min(coverHeight, baseHeight)
 
-        return Math.max(ratioX, ratioY)
+        boxAlpha = Math.max(ratioX, ratioY)
     }
 
-    return 1
+    let dist = Math.hypot(coverX - baseX, coverY - baseY)
+    let scaledDist = (dist - 0.4 * RISE) / (0.4 * RISE)
+    let distAlpha = Math.min(1, Math.max(0, scaledDist))
+
+    return Math.min(boxAlpha, distAlpha)
 }
 
 // Spriting
@@ -378,7 +400,6 @@ class HexRoom {
     }
 
     prerender() {
-
         for (let row = 0; row < this.numRows; row++) {
             let off = (row + this.parity) % 2
             for (let col = off; col < this.numCols; col += 2) {
@@ -390,26 +411,19 @@ class HexRoom {
                     if (entity.animation !== null && "sprite" in entity) {
                         let x = entity.x + EDGE / 2 + RUN
                         let y = entity.y + RISE
-                        let entityMeasure = entity.sprite.measure
-                        let cells = this.getCells(x - entityMeasure.actualBoundingBoxLeft,
-                                                  y - entityMeasure.actualBoundingBoxAscent,
-                                                  entityMeasure.actualBoundingBoxLeft + entityMeasure.actualBoundingBoxRight,
-                                                  entityMeasure.actualBoundingBoxAscent + entityMeasure.actualBoundingBoxDescent)
+                        let entityBox = converTextMeasurement(entity.sprite.measure)
+                        let cells = this.getCells(x - entityBox.left,
+                                                  y - entityBox.up,
+                                                  entityBox.left + entityBox.right,
+                                                  entityBox.up + entityBox.down)
                         for (let cell of cells) {
                             let hex = this.grids["GROUND"].get(cell[0], cell[1])
                             let text = this.grids["TEXT"].get(cell[0], cell[1])
                             let textX = text.x + EDGE / 2 + RUN
                             let textY = text.y + RISE
-                            let textMeasure = text.measure
+                            let textBox = converTextMeasurement(text.measure)
 
-                            let alpha = getCoveringAlpha(x - entityMeasure.actualBoundingBoxLeft,
-                                                         y - entityMeasure.actualBoundingBoxAscent,
-                                                         entityMeasure.actualBoundingBoxLeft + entityMeasure.actualBoundingBoxRight,
-                                                         entityMeasure.actualBoundingBoxAscent + entityMeasure.actualBoundingBoxDescent,
-                                                         textX - textMeasure.actualBoundingBoxLeft,
-                                                         textY - textMeasure.actualBoundingBoxAscent,
-                                                         textMeasure.actualBoundingBoxLeft + textMeasure.actualBoundingBoxRight,
-                                                         textMeasure.actualBoundingBoxAscent + textMeasure.actualBoundingBoxDescent)
+                            let alpha = getCoveringAlpha(x, y, entityBox, textX, textY, textBox)
 
                             // hex.snapFill = "#664600"
                             text.snapAlpha = Math.min(text.snapAlpha ?? 1, alpha)
