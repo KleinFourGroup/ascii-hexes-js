@@ -324,6 +324,7 @@ class HexRoom {
         this.grids["ENTITY"] = new HexGrid(widthRows, heightCols, EDGE / 2 + RUN, RISE, parity)
         this.grids["ENTITY"].parent = this
         
+        this.entities = []
     }
 
     getCell(x, y) {
@@ -395,8 +396,20 @@ class HexRoom {
         return this.grids[layer].get(row, col)
     }
 
-    set(layer, row, col, val) {
+    set(layer, row, col, val, erase = false) {
+        if (erase && layer == "ENTITY") {
+            let oldval = this.grids[layer].get(row, col)
+            if (oldval instanceof Entity) {
+                let index = this.entities.indexOf(oldval)
+                if (index > -1) this.entities.splice(index, 1)
+            }
+        }
+
         this.grids[layer].set(row, col, val)
+
+        if (layer == "ENTITY" && val instanceof Entity) {
+            if (this.entities.indexOf(val) == -1) this.entities.push(val)
+        }
     }
 
     prerender() {
@@ -643,8 +656,8 @@ class HexMoveAnimation extends KeyframeAnimation {
         }
 
         function tweenFn(timestamp) {
-            // let progress = timestamp / duration
-            let progress = (1 - Math.cos((timestamp / duration) * Math.PI)) / 2
+            let progress = timestamp / duration
+            // let progress = (1 - Math.cos((timestamp / duration) * Math.PI)) / 2
             entity.x = (1 - progress) * startX + (progress) * destX
             entity.y = (1 - progress) * startY + (progress) * destY
         }
@@ -767,6 +780,34 @@ let idleEntity = new TextEntity("零", 0, 0)
 
 let loc = [null, null]
 
+function updateRoom() {
+
+    if (hexroom.entities.length >= 6) {
+        let other = null
+        do {
+            other = hexroom.entities[Math.floor(Math.random() * hexroom.entities.length)]
+            if (other === player) other = null
+        } while (other === null)
+
+        hexroom.set("ENTITY", other.row, other.col, null, true)
+    }
+
+    if (hexroom.entities.length < 6) {
+        let foundEmpty = false
+        do {
+            let row = Math.floor(Math.random() * hexroom.numRows)
+            let col = Math.floor(Math.random() * hexroom.numCols)
+            if ((row + col) % 2 === hexroom.parity && hexroom.get("ENTITY", row, col) === null) {
+                let newEntity = new TextEntity("零", 0, 0)
+                hexroom.set("ENTITY", row, col, newEntity)
+                newEntity.animation = new IdleAnimation(newEntity, 5, 6000)
+                newEntity.animation.start()
+                foundEmpty = true
+            }
+        } while (!foundEmpty)
+    }
+}
+
 function getNextAnimation() {
     function isEmpty(row, col) {
         if (0 > row || row >= hexroom.numRows) return false
@@ -789,11 +830,22 @@ function getNextAnimation() {
         let anim = new HexMoveAnimation(player, hexroom.grids["ENTITY"], dest[0], dest[1], 1000)
         player.animation = anim
         player.animation.start()
+        return true
     } else {
         let anim = new HexJiggleAnimation(player, hexroom.grids["ENTITY"], dest[0], dest[1], 400)
         player.animation = anim
         player.animation.start()
+        return false
     }
+}
+
+function processAnimations(delta) {
+    for (let entity of hexroom.entities) {
+        entity.animation.update(delta)
+    }
+
+    // player.animation.update(delta)
+    // idleEntity.animation.update(delta)
 }
 
 function renderFrame() {
@@ -817,14 +869,16 @@ function updateLoop(timestamp) {
     prevTime = currTime
     currTime = timestamp
     let delta = (currTime - prevTime)
+    
+    processAnimations(delta)
 
     hexroom.x = Math.floor((canvas.width - hexroom.pxWidth) / 2)
     hexroom.y = Math.floor((canvas.height - hexroom.pxHeight) / 2)
 
     if (mouseLoc.x !== null && mouseLoc.y !== null) {
-
         let oldloc = loc
         loc = hexroom.getCell(mouseLoc.x, mouseLoc.y)
+
         if (loc[0] !== oldloc[0] || loc[1] !== oldloc[1]) {
             let hex = null
             if (oldloc[0] !== null) {
@@ -838,13 +892,10 @@ function updateLoop(timestamp) {
         }
     }
 
-    player.animation.update(delta)
-
     if (player.animation === null) {
-        getNextAnimation()
+        let moved = getNextAnimation()
+        if (!moved) updateRoom()
     }
-
-    idleEntity.animation.update(delta)
 
     renderFrame()
 
@@ -864,6 +915,7 @@ function initialize(timestamp) {
     hexroom.set("ENTITY", 6, 2 + parity, idleEntity)
 
     getNextAnimation()
+
     idleEntity.animation = new IdleAnimation(idleEntity, 5, 6000)
     idleEntity.animation.start()
 
