@@ -5,6 +5,18 @@
 // Configs
 const EDGE = 30, RISE = 26, RUN = 15
 
+const COLORS = {
+    "terminal black": "#282828",
+    "terminal green": "#33FF00",
+    "dark terminal green": "#0A3300",
+    "terminal amber": "#FFB000",
+    "dark terminal amber": "#664600",
+    "flourescent blue": "#15f4ee",
+    "dark flourescent blue": "#034947",
+    "neon red": "#FF3131", // Not happy with this one
+    "dark neon red": "#990000"
+}
+
 // Body
 const bodyHTML = document.querySelector("body")
 
@@ -170,7 +182,7 @@ canvas.addEventListener("mouseleave", (event) => {
 //-------------------//
 
 class HexagonSprite {
-    constructor(x = 0, y = 0, fill = "#0A3300", edge = EDGE, rise = RISE, run = RUN) {
+    constructor(x = 0, y = 0, fill = COLORS["dark terminal green"], edge = EDGE, rise = RISE, run = RUN) {
         this.x = x
         this.y = y
         this.fill = fill
@@ -187,7 +199,7 @@ class HexagonSprite {
         let absY = this.y + (this.parent?.absY ?? 0)
         ctx.globalAlpha = 1
         ctx.fillStyle = this.snapFill ?? this.fill
-        ctx.strokeStyle = "#33FF00"
+        ctx.strokeStyle = COLORS["terminal green"]
         ctx.beginPath()
         // ctx.moveTo(absX - (this.edge / 2 + this.run), absY)
         // ctx.lineTo(absX - this.edge / 2, absY + this.rise)
@@ -210,7 +222,7 @@ class HexagonSprite {
 }
 
 class TextSprite {
-    constructor(text, x = 0, y = 0, fill = "#33FF00") {
+    constructor(text, x = 0, y = 0, fill = COLORS["terminal green"]) {
         this.text = text
         this.x = x
         this.y = y
@@ -265,6 +277,14 @@ function makeCoordinate(row, col) {
     }
 
     return coordinate
+}
+
+function validCoordinates(row, col, numRows, numCols, parity) {
+    let isValid = ((row + col) % 2 === parity)
+    isValid &&= (0 <= row && row < numRows)
+    isValid &&= (0 <= col || col < numCols)
+    
+    return isValid
 }
 
 const HEX_DIRS = {
@@ -345,10 +365,10 @@ class HexGrid {
     }
 
     set(row, col, sprite) {
-        if ((row + col) % 2 !== this.parity) {
-            console.log(`No cell at (${row}, ${col})`)
-            return
-        }
+        let isValid = validCoordinates(row, col, this.numRows, this.numCols, this.parity)
+        console.assert(isValid,
+            `No cell at (${row}, ${col})`)
+        if (!isValid) return
 
         let i = row
         let j = Math.floor(col / 2)
@@ -366,10 +386,10 @@ class HexGrid {
     }
 
     get(row, col) {
-        if ((row + col) % 2 !== this.parity) {
-            console.log(`No cell at (${row}, ${col})`)
-            return
-        }
+        let isValid = validCoordinates(row, col, this.numRows, this.numCols, this.parity)
+        console.assert(isValid,
+            `No cell at (${row}, ${col})`)
+        if (!isValid) return null
 
         let i = row
         let j = Math.floor(col / 2)
@@ -599,18 +619,10 @@ class HexGraph {
     }
 
     get(row, col) {
-        if ((row + col) % 2 !== this.parity) {
-            console.log(`No cell at (${row}, ${col})`)
-            return null
-        }
-        if (0 > row || row >= this.numRows) {
-            console.log(`No cell at (${row}, ${col})`)
-            return null
-        }
-        if (0 > col || col >= this.numCols) {
-            console.log(`No cell at (${row}, ${col})`)
-            return null
-        }
+        let isValid = validCoordinates(row, col, this.numRows, this.numCols, this.parity)
+        console.assert(isValid,
+            `No cell at (${row}, ${col})`)
+        if (!isValid) return null
 
         let i = row
         let j = Math.floor(col / 2)
@@ -619,18 +631,10 @@ class HexGraph {
     }
 
     set(row, col, val) {
-        if ((row + col) % 2 !== this.parity) {
-            console.log(`No cell at (${row}, ${col})`)
-            return
-        }
-        if (0 > row || row >= this.numRows) {
-            console.log(`No cell at (${row}, ${col})`)
-            return
-        }
-        if (0 > col || col >= this.numCols) {
-            console.log(`No cell at (${row}, ${col})`)
-            return
-        }
+        let isValid = validCoordinates(row, col, this.numRows, this.numCols, this.parity)
+        console.assert(isValid,
+            `No cell at (${row}, ${col})`)
+        if (!isValid) return
 
         let i = row
         let j = Math.floor(col / 2)
@@ -883,21 +887,17 @@ class IdleAnimation extends KeyframeAnimation {
 
         let startY = entity.y
 
-        function startFn() {
-            // console.log("Beginning move!")
-        }
-
         function tweenFn(timestamp) {
             // let progress = timestamp / duration
             let progress = (timestamp / duration) * 2 * Math.PI
-            entity.y = startY + magnitude * Math.sin(progress)
+            entity.y = startY - magnitude * Math.sin(progress)
         }
 
-        function endFn() {
-            // console.log("Move ended!")
-        }
+        // function endFn() {
+        //     entity.y = startY
+        // }
 
-        let keyframes = [new KeyFrame(0, startFn), new KeyFrame(duration, endFn)]
+        let keyframes = [new KeyFrame(0), new KeyFrame(duration)]
         let tweens = [new Tween(duration, tweenFn)]
 
         super(keyframes, tweens, true)
@@ -911,9 +911,8 @@ class IdleAnimation extends KeyframeAnimation {
 
 class HexMoveAnimation extends KeyframeAnimation {
     constructor(entity, hexgrid, destRow, destCol, duration) {
-        if (entity.parent !== hexgrid) {
-            console.log("Error! HexMove animation called on entity with incorrect grid!")
-        }
+        console.assert(entity.parent === hexgrid,
+            "Error! HexMoveAnimation called on entity with incorrect grid!")
 
         let startX = entity.x
         let startY = entity.y
@@ -956,10 +955,11 @@ class HexMoveAnimation extends KeyframeAnimation {
 
 class HexPathAnimation extends KeyframeAnimation {
     constructor(entity, hexgrid, path, stepDuration) {
-        if (entity.parent !== hexgrid) {
-            console.log("Error! HexMove animation called on entity with incorrect grid!")
-        }
-
+        console.assert(entity.parent === hexgrid,
+            "Error! HexPathAnimation called on entity with incorrect grid!")
+        console.assert(path.length > 1,
+            `Error! HexPathAnimation called on path of length ${path.length}!`)
+    
         function coordToPx(coordinate) {
             let x = coordinate.col * (EDGE + RUN)
             let y = coordinate.row * RISE
@@ -1027,9 +1027,8 @@ class HexPathAnimation extends KeyframeAnimation {
 
 class HexBumpAnimation extends KeyframeAnimation {
     constructor(entity, hexroom, destRow, destCol, duration) {
-        if (entity.parent.parent !== hexroom) {
-            console.log("Error! HexMove animation called on entity with incorrect room!")
-        }
+        console.assert(entity.parent.parent === hexroom,
+            "Error! HexBumpAnimation called on entity with incorrect room!")
 
         let startX = entity.x
         let startY = entity.y
@@ -1103,7 +1102,6 @@ class HexShakeAnimation extends KeyframeAnimation {
         let startY = entity.y
 
         function startFn() {
-            // console.log("Beginning move!")
             playError()
             blockingCounter++
         }
@@ -1114,7 +1112,6 @@ class HexShakeAnimation extends KeyframeAnimation {
         }
 
         function endFn() {
-            // console.log("Move ended!")
             entity.x = startX
             entity.y = startY
             entity.animation = null
@@ -1136,7 +1133,6 @@ class HexShakeAnimation extends KeyframeAnimation {
 class FadeInAnimation extends KeyframeAnimation {
     constructor(entity, duration) {
         function startFn() {
-            // console.log("Beginning move!")
             entity.sprite.alpha = 0
             blockingCounter++
         }
@@ -1147,7 +1143,6 @@ class FadeInAnimation extends KeyframeAnimation {
         }
 
         function endFn() {
-            // console.log("Move ended!")
             entity.sprite.alpha = 1
             entity.animation = new IdleAnimation(entity, 5, 6000)
             entity.animation.start()
@@ -1166,12 +1161,10 @@ class FadeInAnimation extends KeyframeAnimation {
 
 class HexDieAnimation extends KeyframeAnimation {
     constructor(entity, hexroom, duration) {
-        if (entity.parent.parent !== hexroom) {
-            console.log("Error! HexMove animation called on entity with incorrect room!")
-        }
+        console.assert(entity.parent.parent === hexroom,
+            "Error! HexDieAnimation called on entity with incorrect room!")
 
         function startFn() {
-            // console.log("Beginning move!")
             entity.sprite.alpha = 1
             blockingCounter++
         }
@@ -1182,7 +1175,6 @@ class HexDieAnimation extends KeyframeAnimation {
         }
 
         function endFn() {
-            // console.log("Move ended!")
             entity.sprite.alpha = 0
             entity.animation = null
             hexroom.set("ENTITY", entity.row, entity.col, null, true)
@@ -1342,9 +1334,10 @@ function getNextMove() {
         let destVertex = graph.get(destLoc.row, destLoc.col)
         console.log(`Distance to (${destLoc.row}, ${destLoc.col}): ${destVertex.distance}`)
         
-        if (Number.isFinite(destVertex.distance)) {
+        // Hacky workaround for Path animations failing when path.length == 1
+        if (Number.isFinite(destVertex.distance) && destVertex.distance !== 0) {
             // Does not work with cursor select
-            hexroom.get("GROUND", destLoc.row, destLoc.col).fill = "blue"
+            hexroom.get("GROUND", destLoc.row, destLoc.col).fill = COLORS["dark flourescent blue"] // "#034947"
 
             let path = graph.getPath(destLoc.row, destLoc.col)
             
@@ -1353,7 +1346,7 @@ function getNextMove() {
             player.animation.start()
         } else {
             // Does not work with cursor select
-            hexroom.get("GROUND", destLoc.row, destLoc.col).fill = "red"
+            hexroom.get("GROUND", destLoc.row, destLoc.col).fill = COLORS["dark neon red"] // "#FF3131"
 
             let anim = new HexShakeAnimation(player, 400)
             player.animation = anim
@@ -1364,7 +1357,7 @@ function getNextMove() {
         playerTurn = true
     } else {
         // Does not work with cursor select
-        if (destLoc.row !== null) hexroom.get("GROUND", destLoc.row, destLoc.col).fill = "#0A3300"
+        if (destLoc.row !== null) hexroom.get("GROUND", destLoc.row, destLoc.col).fill = COLORS["dark terminal green"] // "#0A3300"
         destLoc = makeCoordinate(null, null)
 
         let dirs = Object.keys(HEX_DIRS)
@@ -1404,7 +1397,8 @@ function gameLogic() {
 }
 
 function renderFrame() {
-    clearCanvas("#282828")
+    // clearCanvas("#282828")
+    clearCanvas(COLORS["terminal black"])
 
     hexroom.prerender()
     hexroom.render()
@@ -1412,7 +1406,7 @@ function renderFrame() {
     drawDots(50)
 
     if (mouseLoc.x !== null && mouseLoc.y !== null) {
-        ctx.fillStyle = "#FFB000"
+        ctx.fillStyle = COLORS["terminal amber"] // "#FFB000"
         ctx.beginPath()
         ctx.arc(mouseLoc.x, mouseLoc.y, 5, 0, 2 * Math.PI, false)
         ctx.fill()
@@ -1440,11 +1434,11 @@ function updateLoop(timestamp) {
             let hex = null
             if (oldloc.row !== null) {
                 hex = hexroom.get("GROUND", oldloc.row, oldloc.col)
-                hex.fill = "#0A3300"
+                hex.fill = COLORS["dark terminal green"] // "#0A3300"
             }
             if (cursorLoc.row !== null) {
                 hex = hexroom.get("GROUND", cursorLoc.row, cursorLoc.col)
-                hex.fill = "#664600"
+                hex.fill = COLORS["dark terminal amber"] // "#664600"
             }
         }
     }
