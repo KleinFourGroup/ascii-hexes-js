@@ -151,8 +151,11 @@ addEventListener("resize", (event) => {
     resize()
 })
 
-pane.addEventListener("click", (event) => {
+let userHasInteracted = false
+
+function firstInteraction() {
     console.log("User interaction!")
+    userHasInteracted = true
     bodyHTML.classList.add("no-cursor")
     // bodyHTML.style.cursor = "none"
     bkgMusic.volume = 0.2
@@ -160,6 +163,15 @@ pane.addEventListener("click", (event) => {
     bkgMusic.play()
     pane.remove()
     requestAnimationFrame(initialize)
+}
+
+pane.addEventListener("click", (event) => {
+    firstInteraction()
+})
+
+document.addEventListener("keydown", (event) => {
+    if (!userHasInteracted) firstInteraction()
+    console.log("Document keydown!")
 })
 
 canvas.addEventListener("mousemove", (event) => {
@@ -181,24 +193,70 @@ canvas.addEventListener("mouseleave", (event) => {
 //----- Sprites -----//
 //-------------------//
 
+class ColorManager {
+    constructor(fill, stroke) {
+        this.snapFill = null
+        this.snapStroke = null
+
+        this.fillQueue = [{"id": "default", "color": fill}]
+        this.strokeQueue = [{"id": "default", "color": stroke}]
+    }
+
+    addFill(id, fill) {
+        this.fillQueue.push({"id": id, "color": fill})
+    }
+
+    removeFill(id) {
+        let ind = this.fillQueue.findIndex((elt) => (elt.id === id))
+        console.assert(ind > -1, `Error! id ${id} not in fillQueue`)
+        this.fillQueue.splice(ind, 1)
+    }
+
+    getFill() {
+        return this.snapFill ?? this.fillQueue[this.fillQueue.length - 1].color
+    }
+
+    addStroke(id, stroke) {
+        this.strokeQueue.push({"id": id, "color": stroke})
+    }
+
+    removeStroke(id) {
+        let ind = this.strokeQueue.findIndex((elt) => (elt.id === id))
+        console.assert(ind > -1, `Error! id ${id} not in strokeQueue`)
+        this.strokeQueue.splice(ind, 1)
+    }
+
+    getStroke() {
+        return this.snapStroke ?? this.strokeQueue[this.strokeQueue.length - 1].color
+    }
+
+    update() {
+        this.snapFill = null
+        this.snapStroke = null
+    }
+}
+
 class HexagonSprite {
     constructor(x = 0, y = 0, fill = COLORS["dark terminal green"], edge = EDGE, rise = RISE, run = RUN) {
         this.x = x
         this.y = y
-        this.fill = fill
+        // this.fill = fill
+
+        this.colormanager = new ColorManager(fill, COLORS["terminal green"])
+
         this.edge = edge
         this.rise = rise
         this.run = run
 
         this.parent = null
-        this.snapFill = null
+        // this.snapFill = null
     }
 
     render() {
         let absX = this.x + (this.parent?.absX ?? 0)
         let absY = this.y + (this.parent?.absY ?? 0)
         ctx.globalAlpha = 1
-        ctx.fillStyle = this.snapFill ?? this.fill
+        ctx.fillStyle = this.colormanager.getFill() // this.snapFill ?? this.fill
         ctx.strokeStyle = COLORS["terminal green"]
         ctx.beginPath()
         // ctx.moveTo(absX - (this.edge / 2 + this.run), absY)
@@ -217,7 +275,8 @@ class HexagonSprite {
         ctx.fill()
         ctx.stroke()
 
-        this.snapFill = null
+        // this.snapFill = null
+        this.colormanager.update()
     }
 }
 
@@ -295,24 +354,6 @@ const HEX_DIRS = {
     "SW": makeCoordinate(1, -1),
     "NW": makeCoordinate(-1, -1),
 }
-
-// const HEX_DIRS = {
-//     "N": [-2, 0],
-//     "NE": [-1, 1],
-//     "SE": [1, 1],
-//     "S": [2, 0],
-//     "SW": [1, -1],
-//     "NW": [-1, -1],
-// }
-
-// const HEX_DIRS = {
-//     "N":  {"row": -2, "col": 0},
-//     "NE": {"row": -1, "col": 1},
-//     "SE": {"row": 1, "col": 1},
-//     "S":  {"row": 2, "col": 0},
-//     "SW": {"row": 1, "col": -1},
-//     "NW": {"row": -1, "col": -1},
-// }
 
 function randomCell(numRows, numCols, parity) {
     while (true) {
@@ -1210,15 +1251,6 @@ function drawDots(step) {
     let stepsX = Math.ceil(centerX / step)
     let stepsY = Math.ceil(centerY / step)
 
-    // for (let x = initX; x < canvas.width + step; x += step) {
-    //     for (let y = initY; y < canvas.height + step; y += step) {
-    //         ctx.fillStyle = "#FFB000"
-    //         ctx.beginPath()
-    //         ctx.arc(x, y, 2, 0, 2 * Math.PI, false)
-    //         ctx.fill()
-    //     }
-    // }
-
     for (let stepX = -stepsX; stepX <= stepsX; stepX++) {
         for (let stepY = -stepsY; stepY <= stepsY; stepY++) {
             let x = centerX + step * stepX
@@ -1292,26 +1324,10 @@ function updateRoom() {
         other.animation.start()
     }
 
-    // if (hexroom.entities.length < 6) {
-    //     let foundEmpty = false
-    //     do {
-    //         let row = Math.floor(Math.random() * hexroom.numRows)
-    //         let col = Math.floor(Math.random() * hexroom.numCols)
-    //         if ((row + col) % 2 === hexroom.parity && hexroom.get("ENTITY", row, col) === null) {
-    //             let newEntity = new TextEntity("零", 0, 0)
-    //             hexroom.set("ENTITY", row, col, newEntity)
-    //             newEntity.animation = new IdleAnimation(newEntity, 5, 6000)
-    //             newEntity.animation.start()
-    //             foundEmpty = true
-    //         }
-    //     } while (!foundEmpty)
-    // }
-
     if (hexroom.entities.length < numEnts + 1) {
         let foundEmpty = false
         do {
             let addLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
-            // hexroom.get("GROUND", addLoc.row, addLoc.col).snapFill = "red"
             if (hexroom.get("ENTITY", addLoc.row, addLoc.col) === null) {
                 let newEntity = new TextEntity("零", 0, 0)
                 hexroom.set("ENTITY", addLoc.row, addLoc.col, newEntity)
@@ -1337,7 +1353,7 @@ function getNextMove() {
         // Hacky workaround for Path animations failing when path.length == 1
         if (Number.isFinite(destVertex.distance) && destVertex.distance !== 0) {
             // Does not work with cursor select
-            hexroom.get("GROUND", destLoc.row, destLoc.col).fill = COLORS["dark flourescent blue"] // "#034947"
+            hexroom.get("GROUND", destLoc.row, destLoc.col).colormanager.addFill("dest", COLORS["dark flourescent blue"])
 
             let path = graph.getPath(destLoc.row, destLoc.col)
             
@@ -1346,7 +1362,7 @@ function getNextMove() {
             player.animation.start()
         } else {
             // Does not work with cursor select
-            hexroom.get("GROUND", destLoc.row, destLoc.col).fill = COLORS["dark neon red"] // "#FF3131"
+            hexroom.get("GROUND", destLoc.row, destLoc.col).colormanager.addFill("dest", COLORS["dark neon red"])
 
             let anim = new HexShakeAnimation(player, 400)
             player.animation = anim
@@ -1357,7 +1373,7 @@ function getNextMove() {
         playerTurn = true
     } else {
         // Does not work with cursor select
-        if (destLoc.row !== null) hexroom.get("GROUND", destLoc.row, destLoc.col).fill = COLORS["dark terminal green"] // "#0A3300"
+        if (destLoc.row !== null) hexroom.get("GROUND", destLoc.row, destLoc.col).colormanager.removeFill("dest")
         destLoc = makeCoordinate(null, null)
 
         let dirs = Object.keys(HEX_DIRS)
@@ -1434,11 +1450,11 @@ function updateLoop(timestamp) {
             let hex = null
             if (oldloc.row !== null) {
                 hex = hexroom.get("GROUND", oldloc.row, oldloc.col)
-                hex.fill = COLORS["dark terminal green"] // "#0A3300"
+                hex.colormanager.removeFill("select") // COLORS["dark terminal green"] // "#0A3300"
             }
             if (cursorLoc.row !== null) {
                 hex = hexroom.get("GROUND", cursorLoc.row, cursorLoc.col)
-                hex.fill = COLORS["dark terminal amber"] // "#664600"
+                hex.colormanager.addFill("select", COLORS["dark terminal amber"]) // "#664600"
             }
         }
     }
