@@ -37,6 +37,7 @@ const bkgMusic = document.getElementById("background_music")
 const errorSFX = document.getElementById("error_sound")
 const bumpSFX = document.getElementById("bump_sound")
 const thudSFX = document.getElementById("thud_sound")
+const spellSFX = document.getElementById("spell_sound")
 
 function playError() {
     if (errorSFX.paused) {
@@ -59,6 +60,14 @@ function playThud() {
         thudSFX.play()
     } else {
         thudSFX.currentTime = 0
+    }
+}
+
+function playSpell() {
+    if (spellSFX.paused) {
+        spellSFX.play()
+    } else {
+        spellSFX.currentTime = 0
     }
 }
 
@@ -585,11 +594,8 @@ class HexRoom {
             let off = (row + this.parity) % 2
             for (let col = off; col < this.numCols; col += 2) {
                 let entity = this.grids["ENTITY"].get(row, col)
-                if (entity !== null) {
-                    // let text = this.grids["TEXT"].get(row, col)
-                    // text.snapAlpha = 0
-
-                    if (entity.animation !== null && "sprite" in entity) {
+                if (entity !== null && "sprite" in entity) {                    
+                    if (entity.animation !== null) {
                         let x = entity.x + EDGE / 2 + RUN
                         let y = entity.y + RISE
                         let entityBox = converTextMeasurement(entity.sprite.measure)
@@ -609,6 +615,9 @@ class HexRoom {
                             // hex.snapFill = "#664600"
                             text.snapAlpha = Math.min(text.snapAlpha ?? 1, alpha)
                         }
+                    } else {
+                        let text = this.grids["TEXT"].get(row, col)
+                        text.snapAlpha = 0
                     }
                 }
             }
@@ -798,7 +807,50 @@ class Component {
 class PlayerComponent extends Component {
     constructor() {
         super("player", null)
-        this.lastMoveCollision = null
+        this.isRandomWalking = false
+        // this.lastMoveCollision = null
+    }
+}
+
+class EnemyComponent extends Component {
+    constructor() {
+        super("enemy", null)
+    }
+}
+
+class SummonerComponent extends Component {
+    constructor(limit) {
+        super("summoner", null)
+        this.limit = limit
+        this.maxMana = 15
+        this.mana = 15
+        this.children = []
+    }
+
+    addMana(inc) {
+        this.mana = Math.min(this.maxMana, this.mana + inc)
+    }
+
+    subMana(dec) {
+        this.mana = Math.max(0, this.mana - dec)
+    }
+
+    addChild(child) {
+        this.children.push(child)
+    }
+
+    removeChild(child) {
+        let index = this.children.indexOf(child)
+        if (index > -1) this.children.splice(index, 1)
+    }
+}
+
+class SummonsComponent extends Component {
+    constructor(summoner) {
+        super("summons", null)
+        console.assert(summoner.hasComponent("summoner"),
+            "Errors!  Tried to create summons with invalid summoner!")
+        this.summoner = summoner
     }
 }
 
@@ -828,6 +880,20 @@ class Entity {
 
     hasComponent(name) {
         return (name in this.components)
+    }
+
+    isAll(...names) {
+        for (let name in names) {
+            if (!this.hasComponent(name)) return false
+        }
+        return true
+    }
+
+    isOne(...names) {
+        for (let name in names) {
+            if (this.hasComponent(name)) return true
+        }
+        return false
     }
 
     getComponent(name) {
@@ -1132,8 +1198,9 @@ class HexBumpAnimation extends KeyframeAnimation {
             entity.y = destY
             let blocker = hexroom.get("ENTITY", destRow, destCol)
             if (blocker instanceof Entity) {
-                blocker.animation = new HexDieAnimation(blocker, hexroom, 200)
-                blocker.animation.start()
+                killEntity(blocker, hexroom)
+                // blocker.animation = new HexDieAnimation(blocker, hexroom, 200)
+                // blocker.animation.start()
                 playBump()
             } else {
                 playThud()
@@ -1167,6 +1234,59 @@ class HexBumpAnimation extends KeyframeAnimation {
         this.startY = startY
         this.destX = destX
         this.destY = destY
+        this.duration = duration
+    }
+}
+
+class HexCastAnimation extends KeyframeAnimation {
+    constructor(entity, midCallback, midArgs, duration) {
+        let startX = entity.x
+        let startY = entity.y
+
+        function startFn() {
+            // console.log("Beginning move!")
+            blockingCounter++
+        }
+
+        function tweenOutFn(timestamp) {
+            let progress = timestamp / duration
+            let dist = 5 * Math.sin(progress * Math.PI)
+            entity.x = startX + dist * Math.cos(progress * 8 * Math.PI)
+            entity.y = startY - dist * Math.sin(progress * 8 * Math.PI)
+        }
+
+        function midFn() {
+            entity.x = startX
+            entity.y = startY - 5
+            playSpell()
+            midCallback(...midArgs)
+        }
+
+        function tweenInFn(timestamp) {
+            let progress = (timestamp + Math.floor(duration / 2)) / duration
+            let dist = 5 * Math.sin(progress * Math.PI)
+            entity.x = startX + dist * Math.cos(progress * 8 * Math.PI)
+            entity.y = startY - dist * Math.sin(progress * 8 * Math.PI)
+        }
+
+        function endFn() {
+            // console.log("Move ended!")
+            entity.x = startX
+            entity.y = startY
+            entity.animation = null
+            blockingCounter--
+        }
+
+        let keyframes = [new KeyFrame(0, startFn),
+                         new KeyFrame(Math.floor(duration / 2), midFn),
+                         new KeyFrame(duration, endFn)]
+        let tweens = [new Tween(Math.floor(duration / 2), tweenOutFn), new Tween(Math.ceil(duration / 2), tweenInFn)]
+
+        super(keyframes, tweens)
+
+        this.entity = entity
+        this.startX = startX
+        this.startY = startY
         this.duration = duration
     }
 }
@@ -1302,6 +1422,77 @@ let parity = 1
 
 let hexroom = new HexRoom(19, 11, 200, 200, parity)
 
+function makeEntity(text, ...components) {
+    let entity = new TextEntity(text, 0, 0)
+    for (let component of components) {
+        entity.addComponent(component)
+    }
+
+    return entity
+}
+
+function killEntity(entity, hexroom) {
+    entity.animation = new HexDieAnimation(entity, hexroom, 200)
+    entity.animation.start()
+
+    if (entity.hasComponent("summons")) {
+        let summoner = entity.getComponent("summons").summoner
+        summoner.getComponent("summoner").removeChild(entity)
+    }
+}
+
+function spawnEntity(entity, hexroom, row, col, add = false) {
+    if (add && entity.hasComponent("summons")) {
+        let summoner = entity.getComponent("summons").summoner
+        summoner.getComponent("summoner").addChild(entity)
+    }
+
+    hexroom.set("ENTITY", row, col, entity)
+    entity.animation = new FadeInAnimation(entity, 200)
+    entity.animation.start()
+}
+
+function isPlayerExposed() {
+    let ct = 0
+    for (let dir in HEX_DIRS) {
+        let row = player.row + HEX_DIRS[dir].row
+        let col = player.col + HEX_DIRS[dir].col
+        if (hexroom.get("ENTITY", row, col) === null) {
+            ct++
+        }
+    }
+
+    return (ct >= 5)
+}
+
+function boxPlayerIn(summoner) {
+    let summonComp = summoner.getComponent("summoner")
+
+    summonComp.subMana(10)
+
+    for (let dir in HEX_DIRS) {
+        let row = player.row + HEX_DIRS[dir].row
+        let col = player.col + HEX_DIRS[dir].col
+        if (hexroom.get("ENTITY", row, col) === null && summonComp.children.length < summonComp.limit) {
+            let newEntity = makeEntity("鬼", new EnemyComponent(), new SummonsComponent(summoner))
+            summonComp.addChild(newEntity)
+            spawnEntity(newEntity, hexroom, row, col)
+        }
+        // let newEntity = new TextEntity("零", 0, 0)
+    }
+
+    // while (hexroom.entities.length < numEnts + 1) {
+    //     let addLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
+    //     // hexroom.get("GROUND", addLoc.row, addLoc.col).snapFill = "red"
+    //     if (hexroom.get("ENTITY", addLoc.row, addLoc.col) === null) {
+    //         let newEntity = new TextEntity("零", 0, 0)
+    //         hexroom.set("ENTITY", addLoc.row, addLoc.col, newEntity)
+    //         newEntity.animation = new IdleAnimation(newEntity, 5, 6000)
+    //         newEntity.animation.start()
+    //     }
+    // }
+}
+
 function makeHexRoom(hexroom) {
     // hexgrid = new HexGrid(11, 19, 200, 200)
 
@@ -1334,8 +1525,9 @@ function makeHexRoom(hexroom) {
     }
 }
 
-let player = new TextEntity("@", 0, 0)
-let idleEntity = new TextEntity("零", 0, 0)
+let player = makeEntity("@", new PlayerComponent()) // new TextEntity("@", 0, 0)
+
+let summonerEntity = makeEntity("S", new EnemyComponent(), new SummonerComponent(20)) // new TextEntity("S", 0, 0)
 
 let cursorLoc = makeCoordinate(null, null)
 let destLoc = makeCoordinate(null, null)
@@ -1344,31 +1536,67 @@ let blockingCounter = 0
 let playerTurn = true
 
 function enemyLogic() {
-    let numEnts = 20
-    if (hexroom.entities.length >= numEnts + 1) {
-        let other = null
-        do {
-            other = hexroom.entities[Math.floor(Math.random() * hexroom.entities.length)]
-            if (other === player) other = null
-        } while (other === null)
+    // This shouldn't have to be here
+    if (destLoc.row !== null) hexroom.get("GROUND", destLoc.row, destLoc.col).colormanager.removeFill("dest")
 
-        // hexroom.set("ENTITY", other.row, other.col, null, true)
-        other.animation = new HexDieAnimation(other, hexroom, 200)
-        other.animation.start()
-    }
+    let enemies = hexroom.entities.filter((entity) => entity.hasComponent("enemy"))
 
-    if (hexroom.entities.length < numEnts + 1) {
-        let foundEmpty = false
-        do {
-            let addLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
-            if (hexroom.get("ENTITY", addLoc.row, addLoc.col) === null) {
-                let newEntity = new TextEntity("零", 0, 0)
-                hexroom.set("ENTITY", addLoc.row, addLoc.col, newEntity)
-                newEntity.animation = new FadeInAnimation(newEntity, 200)
-                newEntity.animation.start()
-                foundEmpty = true
+    for (let enemy of enemies) {
+        if (enemy.hasComponent("summoner")) {
+            let summonComp = enemy.getComponent("summoner")
+            let numEnts = summonComp.limit
+
+            summonComp.addMana(1)
+
+            console.log(summonComp.children.length)
+
+            if (isPlayerExposed() && summonComp.mana >= 10) {
+                boxPlayerIn(enemy)
+            } else if (hexroom.entities.length < numEnts && summonComp.mana >= 2) {
+                let foundEmpty = false
+                do {
+                    let addLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
+                    if (hexroom.get("ENTITY", addLoc.row, addLoc.col) === null) {
+                        // let newEntity = new TextEntity("零", 0, 0)
+                        function summonLambda() {
+                            let newEntity = makeEntity("鬼", new EnemyComponent(), new SummonsComponent(enemy))
+                            summonComp.addChild(newEntity)
+                            summonComp.subMana(2)
+                            spawnEntity(newEntity, hexroom, addLoc.row, addLoc.col)
+                        }
+
+                        let summonAnimation = new HexCastAnimation(enemy, summonLambda, [], 1000)
+                        enemy.animation = summonAnimation
+                        enemy.animation.start()
+                        foundEmpty = true
+                    }
+                } while (!foundEmpty)
+            } else {
+                let dirs = Object.keys(HEX_DIRS)
+                let destDir = HEX_DIRS[dirs[Math.floor(Math.random() * dirs.length)]]
+                let dest = makeCoordinate(enemy.row + destDir.row, enemy.col + destDir.col)
+            
+                if (hexroom.isEmpty(dest.row, dest.col)) {
+                    let anim = new HexMoveAnimation(enemy, hexroom.grids["ENTITY"], dest.row, dest.col, 1000)
+                    enemy.animation = anim
+                    enemy.animation.start()
+                } else {
+                    let anim = new HexBumpAnimation(enemy, hexroom, dest.row, dest.col, 400)
+                    enemy.animation = anim
+                    enemy.animation.start()
+                }
             }
-        } while (!foundEmpty)
+
+            // if (hexroom.entities.length >= numEnts) {
+            //     let other = null
+            //     do {
+            //         other = hexroom.entities[Math.floor(Math.random() * hexroom.entities.length)]
+            //         if (other === player) other = null
+            //     } while (other === null)
+        
+            //     killEntity(other, hexroom)
+            // }
+        }
     }
 
     playerTurn = true
@@ -1376,38 +1604,9 @@ function enemyLogic() {
 
 function playerLogic() {
     let comp = player.getComponent("player")
-    if (comp.lastMoveCollision) {
-        destLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
-
-        let graph = hexroom.makeHexGraph()
-        graph.calculateDistances(player.row, player.col, destLoc.row, destLoc.col)
-        let destVertex = graph.get(destLoc.row, destLoc.col)
-        console.log(`Distance to (${destLoc.row}, ${destLoc.col}): ${destVertex.distance}`)
-        
-        // Hacky workaround for Path animations failing when path.length == 1
-        if (Number.isFinite(destVertex.distance) && destVertex.distance !== 0) {
-            // Does not work with cursor select
-            hexroom.get("GROUND", destLoc.row, destLoc.col).colormanager.addFill("dest", COLORS["dark flourescent blue"])
-
-            let path = graph.getPath(destLoc.row, destLoc.col)
-            
-            let anim = new HexPathAnimation(player, hexroom.grids["ENTITY"], path, 1000)
-            player.animation = anim
-            player.animation.start()
-        } else {
-            // Does not work with cursor select
-            hexroom.get("GROUND", destLoc.row, destLoc.col).colormanager.addFill("dest", COLORS["dark neon red"])
-
-            let anim = new HexShakeAnimation(player, 400)
-            player.animation = anim
-            player.animation.start()
-        }
-
-        comp.lastMoveCollision = false
-        playerTurn = true
-    } else {
-        // Does not work with cursor select
+    if (comp.isRandomWalking) {
         if (destLoc.row !== null) hexroom.get("GROUND", destLoc.row, destLoc.col).colormanager.removeFill("dest")
+
         destLoc = makeCoordinate(null, null)
 
         let dirs = Object.keys(HEX_DIRS)
@@ -1426,8 +1625,35 @@ function playerLogic() {
             player.animation = anim
             player.animation.start()
 
-            comp.lastMoveCollision = true
+            comp.isRandomWalking = false
             playerTurn = false
+        }
+    } else {
+        destLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
+
+        let graph = hexroom.makeHexGraph()
+        graph.calculateDistances(player.row, player.col, destLoc.row, destLoc.col)
+        let destVertex = graph.get(destLoc.row, destLoc.col)
+        // console.log(`Distance to (${destLoc.row}, ${destLoc.col}): ${destVertex.distance}`)
+        
+        // Hacky workaround for Path animations failing when path.length == 1
+        if (Number.isFinite(destVertex.distance) && destVertex.distance !== 0) {
+            hexroom.get("GROUND", destLoc.row, destLoc.col).colormanager.addFill("dest", COLORS["dark flourescent blue"])
+
+            let path = graph.getPath(destLoc.row, destLoc.col)
+            
+            let anim = new HexPathAnimation(player, hexroom.grids["ENTITY"], path, 1000)
+            player.animation = anim
+            player.animation.start()
+            playerTurn = false
+        } else {
+            hexroom.get("GROUND", destLoc.row, destLoc.col).colormanager.addFill("dest", COLORS["dark neon red"])
+
+            let anim = new HexShakeAnimation(player, 400)
+            player.animation = anim
+            player.animation.start()
+            comp.isRandomWalking = true
+            playerTurn = true
         }
     }
 }
@@ -1505,30 +1731,6 @@ function updateLoop(timestamp) {
     requestAnimationFrame(updateLoop)
 }
 
-function boxPlayerIn() {
-    let numEnts = 20
-
-    for (let dir in HEX_DIRS) {
-        let row = player.row + HEX_DIRS[dir].row
-        let col = player.col + HEX_DIRS[dir].col
-        let newEntity = new TextEntity("零", 0, 0)
-        hexroom.set("ENTITY", row, col, newEntity)
-        newEntity.animation = new IdleAnimation(newEntity, 5, 6000)
-        newEntity.animation.start()
-    }
-
-    while (hexroom.entities.length < numEnts + 1) {
-        let addLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
-        // hexroom.get("GROUND", addLoc.row, addLoc.col).snapFill = "red"
-        if (hexroom.get("ENTITY", addLoc.row, addLoc.col) === null) {
-            let newEntity = new TextEntity("零", 0, 0)
-            hexroom.set("ENTITY", addLoc.row, addLoc.col, newEntity)
-            newEntity.animation = new IdleAnimation(newEntity, 5, 6000)
-            newEntity.animation.start()
-        }
-    }
-}
-
 function initialize(timestamp) {
     prevTime = currTime
     currTime = timestamp
@@ -1539,12 +1741,18 @@ function initialize(timestamp) {
     hexroom.y = Math.floor((canvas.height - hexroom.pxHeight) / 2)
 
     hexroom.set("ENTITY", 9, 4, player)
-    player.addComponent(new PlayerComponent())
+    hexroom.set("ENTITY", 9, 6, summonerEntity)
+    // player.addComponent(new PlayerComponent())
     // hexroom.set("ENTITY", 9, 6, idleEntity)
-    boxPlayerIn()
+
+    let summonAnimation = new HexCastAnimation(summonerEntity, boxPlayerIn, [summonerEntity], 1000)
+    summonerEntity.animation = summonAnimation
+    summonerEntity.animation.start()
+
+    // boxPlayerIn(summonerEntity)
 
 
-    playerLogic()
+    // playerLogic()
 
     // idleEntity.animation = new IdleAnimation(idleEntity, 5, 6000)
     // idleEntity.animation.start()
