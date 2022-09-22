@@ -170,8 +170,8 @@ pane.addEventListener("click", (event) => {
 })
 
 document.addEventListener("keydown", (event) => {
-    if (!userHasInteracted) firstInteraction()
-    console.log("Document keydown!")
+    if (!userHasInteracted && event.code === "Space") firstInteraction()
+    console.log(`Document keydown: ${event.code}!`)
 })
 
 canvas.addEventListener("mousemove", (event) => {
@@ -783,9 +783,24 @@ class HexGraph {
     }
 }
 
-//--------------------//
-//----- Entities -----//
-//--------------------//
+//-----------------------------------//
+//----- Entities and Components -----//
+//-----------------------------------//
+
+class Component {
+    constructor(name, entity = null) {
+        this.name = name
+        this.entity = entity
+        if (this.entity !== null) this.entity.addComponent(this)
+    }
+}
+
+class PlayerComponent extends Component {
+    constructor() {
+        super("player", null)
+        this.lastMoveCollision = null
+    }
+}
 
 class Entity {
     constructor(sprite, x = 0, y = 0) {
@@ -798,6 +813,25 @@ class Entity {
         this.absY = this.y
 
         this.animation = null
+
+        this.components = {}
+    }
+
+    addComponent(component) {
+        this.components[component.name] = component
+        component.entity = this
+    }
+
+    removeComponent(name) {
+        delete this.components[name]
+    }
+
+    hasComponent(name) {
+        return (name in this.components)
+    }
+
+    getComponent(name) {
+        return this.components[name]
     }
 
     render() {
@@ -1305,12 +1339,11 @@ let idleEntity = new TextEntity("零", 0, 0)
 
 let cursorLoc = makeCoordinate(null, null)
 let destLoc = makeCoordinate(null, null)
-let lastMoveCollision = false
 
 let blockingCounter = 0
 let playerTurn = true
 
-function updateRoom() {
+function enemyLogic() {
     let numEnts = 20
     if (hexroom.entities.length >= numEnts + 1) {
         let other = null
@@ -1341,8 +1374,9 @@ function updateRoom() {
     playerTurn = true
 }
 
-function getNextMove() {
-    if (lastMoveCollision) {
+function playerLogic() {
+    let comp = player.getComponent("player")
+    if (comp.lastMoveCollision) {
         destLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
 
         let graph = hexroom.makeHexGraph()
@@ -1369,7 +1403,7 @@ function getNextMove() {
             player.animation.start()
         }
 
-        lastMoveCollision = false
+        comp.lastMoveCollision = false
         playerTurn = true
     } else {
         // Does not work with cursor select
@@ -1392,7 +1426,7 @@ function getNextMove() {
             player.animation = anim
             player.animation.start()
 
-            lastMoveCollision = true
+            comp.lastMoveCollision = true
             playerTurn = false
         }
     }
@@ -1408,8 +1442,8 @@ function processAnimations(delta) {
 }
 
 function gameLogic() {
-    if (playerTurn) getNextMove()
-    else updateRoom()
+    if (playerTurn) playerLogic()
+    else enemyLogic()
 }
 
 function renderFrame() {
@@ -1505,11 +1539,12 @@ function initialize(timestamp) {
     hexroom.y = Math.floor((canvas.height - hexroom.pxHeight) / 2)
 
     hexroom.set("ENTITY", 9, 4, player)
+    player.addComponent(new PlayerComponent())
     // hexroom.set("ENTITY", 9, 6, idleEntity)
     boxPlayerIn()
 
 
-    getNextMove()
+    playerLogic()
 
     // idleEntity.animation = new IdleAnimation(idleEntity, 5, 6000)
     // idleEntity.animation.start()
