@@ -1560,6 +1560,56 @@ let playerTurn = true
 let enemies = null
 let enemyInd = 0
 
+function summonerAI(enemy) {
+    let summonComp = enemy.getComponent("summoner")
+    let numEnts = summonComp.limit
+
+    summonComp.addMana(1)
+    console.log(`Enemy: summoner/${summonComp.children.length}/${summonComp.mana}`)
+
+    if (isPlayerExposed() && summonComp.mana >= 10) {
+        let summonAnimation = new HexCastAnimation(enemy, boxPlayerIn, [enemy], 1000)
+        enemy.animation = summonAnimation
+        enemy.animation.start()
+        // boxPlayerIn(enemy)
+    } else if (summonComp.children.length < numEnts && summonComp.mana >= 2) {
+        let foundEmpty = false
+        do {
+            let addLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
+            if (hexroom.get("ENTITY", addLoc.row, addLoc.col) === null) {
+                // let newEntity = new TextEntity("零", 0, 0)
+                function summonLambda() {
+                    let newEntity = makeEntity("鬼", new EnemyComponent(), new SummonsComponent(enemy))
+                    summonComp.addChild(newEntity)
+                    summonComp.subMana(2)
+                    spawnEntity(newEntity, hexroom, addLoc.row, addLoc.col)
+                }
+
+                let summonAnimation = new HexCastAnimation(enemy, summonLambda, [], 1000)
+                enemy.animation = summonAnimation
+                enemy.animation.start()
+                foundEmpty = true
+            }
+        } while (!foundEmpty)
+    } else {
+        let dirs = Object.keys(HEX_DIRS)
+        let destDir = HEX_DIRS[dirs[Math.floor(Math.random() * dirs.length)]]
+        let dest = makeCoordinate(enemy.row + destDir.row, enemy.col + destDir.col)
+    
+        if (hexroom.isEmpty(dest.row, dest.col)) {
+            let anim = new HexMoveAnimation(enemy, hexroom.grids["ENTITY"], dest.row, dest.col, 1000)
+            enemy.animation = anim
+            enemy.animation.start()
+        } else {
+            let anim = new HexBumpAnimation(enemy, hexroom, dest.row, dest.col, 400)
+            enemy.animation = anim
+            enemy.animation.start()
+        }
+    }
+
+    return true
+}
+
 function enemyLogic() {
 
     if (enemies === null) {
@@ -1567,61 +1617,16 @@ function enemyLogic() {
         enemyInd = 0
     }
 
-    let nullTurn = true
+    let acted = false
 
-    while (enemyInd < enemies.length && nullTurn) {
+    while (enemyInd < enemies.length && !acted) {
+        console.log(`Enemy #${enemyInd}`)
         let enemy = enemies[enemyInd]
 
         if (enemy.hasComponent("summoner")) {
-            let summonComp = enemy.getComponent("summoner")
-            let numEnts = summonComp.limit
-
-            summonComp.addMana(1)
-            console.log(`Enemy #${enemyInd}: summoner/${summonComp.children.length}/${summonComp.mana}`)
-
-            if (isPlayerExposed() && summonComp.mana >= 10) {
-                let summonAnimation = new HexCastAnimation(enemy, boxPlayerIn, [enemy], 1000)
-                summonerEntity.animation = summonAnimation
-                summonerEntity.animation.start()
-                // boxPlayerIn(enemy)
-            } else if (summonComp.children.length < numEnts && summonComp.mana >= 2) {
-                let foundEmpty = false
-                do {
-                    let addLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
-                    if (hexroom.get("ENTITY", addLoc.row, addLoc.col) === null) {
-                        // let newEntity = new TextEntity("零", 0, 0)
-                        function summonLambda() {
-                            let newEntity = makeEntity("鬼", new EnemyComponent(), new SummonsComponent(enemy))
-                            summonComp.addChild(newEntity)
-                            summonComp.subMana(2)
-                            spawnEntity(newEntity, hexroom, addLoc.row, addLoc.col)
-                        }
-
-                        let summonAnimation = new HexCastAnimation(enemy, summonLambda, [], 1000)
-                        enemy.animation = summonAnimation
-                        enemy.animation.start()
-                        foundEmpty = true
-                    }
-                } while (!foundEmpty)
-            } else {
-                let dirs = Object.keys(HEX_DIRS)
-                let destDir = HEX_DIRS[dirs[Math.floor(Math.random() * dirs.length)]]
-                let dest = makeCoordinate(enemy.row + destDir.row, enemy.col + destDir.col)
-            
-                if (hexroom.isEmpty(dest.row, dest.col)) {
-                    let anim = new HexMoveAnimation(enemy, hexroom.grids["ENTITY"], dest.row, dest.col, 1000)
-                    enemy.animation = anim
-                    enemy.animation.start()
-                } else {
-                    let anim = new HexBumpAnimation(enemy, hexroom, dest.row, dest.col, 400)
-                    enemy.animation = anim
-                    enemy.animation.start()
-                }
-            }
-
-            nullTurn = false
+            acted = summonerAI(enemy)
         } else {
-            nullTurn = true
+            acted = false
         }
 
         enemyInd++
