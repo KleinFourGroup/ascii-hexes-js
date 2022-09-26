@@ -105,6 +105,17 @@ function getCorrectSize(height) {
 
 const FONT_SCALE = getFontScale()
 
+// Miscellania
+
+function shuffle(arr) {
+    for (let ind = arr.length - 1; ind > 0; ind--) {
+        let swap = Math.floor(Math.random() * (ind + 1))
+        let temp = arr[ind]
+        arr[ind] = arr[swap]
+        arr[swap] = temp
+    }
+}
+
 function getCoveringAlpha(coverX, coverY, coverBox, baseX, baseY, baseBox) {
     let interMinX = Math.max(coverX - coverBox.left, baseX - baseBox.left)
     let interMaxX = Math.min(coverX + coverBox.right, baseX + baseBox.right)
@@ -822,8 +833,8 @@ class SummonerComponent extends Component {
     constructor(limit) {
         super("summoner", null)
         this.limit = limit
-        this.maxMana = 15
-        this.mana = 15
+        this.maxMana = 10
+        this.mana = 10
         this.children = []
     }
 
@@ -1134,6 +1145,7 @@ class HexPathAnimation extends KeyframeAnimation {
             // console.log("Move ended!")
             hexgrid.set(entity.row, entity.col, null)
             hexgrid.set(path[path.length - 1].row, path[path.length - 1].col, entity)
+            hexroom.get("GROUND", path[path.length - 1].row, path[path.length - 1].col).colormanager.removeFill("dest")
             entity.animation = null
             blockingCounter--
         }
@@ -1439,6 +1451,13 @@ function killEntity(entity, hexroom) {
         let summoner = entity.getComponent("summons").summoner
         summoner.getComponent("summoner").removeChild(entity)
     }
+
+    if (entity.hasComponent("summoner")) {
+        let summons = entity.getComponent("summoner").children.slice(0)
+        for (let summon of summons) {
+            killEntity(summon, hexroom)
+        }
+    }
 }
 
 function spawnEntity(entity, hexroom, row, col, add = false) {
@@ -1470,7 +1489,10 @@ function boxPlayerIn(summoner) {
 
     summonComp.subMana(10)
 
-    for (let dir in HEX_DIRS) {
+    let dirs = Object.keys(HEX_DIRS)
+    shuffle(dirs)
+
+    for (let dir of dirs) {
         let row = player.row + HEX_DIRS[dir].row
         let col = player.col + HEX_DIRS[dir].col
         if (hexroom.get("ENTITY", row, col) === null && summonComp.children.length < summonComp.limit) {
@@ -1535,24 +1557,34 @@ let destLoc = makeCoordinate(null, null)
 let blockingCounter = 0
 let playerTurn = true
 
+let enemies = null
+let enemyInd = 0
+
 function enemyLogic() {
-    // This shouldn't have to be here
-    if (destLoc.row !== null) hexroom.get("GROUND", destLoc.row, destLoc.col).colormanager.removeFill("dest")
 
-    let enemies = hexroom.entities.filter((entity) => entity.hasComponent("enemy"))
+    if (enemies === null) {
+        enemies = hexroom.entities.filter((entity) => entity.hasComponent("enemy"))
+        enemyInd = 0
+    }
 
-    for (let enemy of enemies) {
+    let nullTurn = true
+
+    while (enemyInd < enemies.length && nullTurn) {
+        let enemy = enemies[enemyInd]
+
         if (enemy.hasComponent("summoner")) {
             let summonComp = enemy.getComponent("summoner")
             let numEnts = summonComp.limit
 
             summonComp.addMana(1)
-
-            console.log(summonComp.children.length)
+            console.log(`Enemy #${enemyInd}: summoner/${summonComp.children.length}/${summonComp.mana}`)
 
             if (isPlayerExposed() && summonComp.mana >= 10) {
-                boxPlayerIn(enemy)
-            } else if (hexroom.entities.length < numEnts && summonComp.mana >= 2) {
+                let summonAnimation = new HexCastAnimation(enemy, boxPlayerIn, [enemy], 1000)
+                summonerEntity.animation = summonAnimation
+                summonerEntity.animation.start()
+                // boxPlayerIn(enemy)
+            } else if (summonComp.children.length < numEnts && summonComp.mana >= 2) {
                 let foundEmpty = false
                 do {
                     let addLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
@@ -1587,19 +1619,20 @@ function enemyLogic() {
                 }
             }
 
-            // if (hexroom.entities.length >= numEnts) {
-            //     let other = null
-            //     do {
-            //         other = hexroom.entities[Math.floor(Math.random() * hexroom.entities.length)]
-            //         if (other === player) other = null
-            //     } while (other === null)
-        
-            //     killEntity(other, hexroom)
-            // }
+            nullTurn = false
+        } else {
+            nullTurn = true
         }
+
+        enemyInd++
     }
 
-    playerTurn = true
+    if (enemyInd === enemies.length) {
+        playerTurn = true
+        enemies = null
+    } else {
+        playerTurn = false
+    }
 }
 
 function playerLogic() {
@@ -1741,13 +1774,26 @@ function initialize(timestamp) {
     hexroom.y = Math.floor((canvas.height - hexroom.pxHeight) / 2)
 
     hexroom.set("ENTITY", 9, 4, player)
-    hexroom.set("ENTITY", 9, 6, summonerEntity)
+
+    let summonerCount = 0
+    while (summonerCount < 3) {
+        let addLoc = randomCell(hexroom.numRows, hexroom.numCols, hexroom.parity)
+        if (hexroom.get("ENTITY", addLoc.row, addLoc.col) === null) {
+            let newEntity = makeEntity("S", new EnemyComponent(), new SummonerComponent(7))
+            hexroom.set("ENTITY", addLoc.row, addLoc.col, newEntity)
+            summonerCount++
+        }
+    }
+
+    playerTurn = false
+
+    // hexroom.set("ENTITY", 9, 6, summonerEntity)
     // player.addComponent(new PlayerComponent())
     // hexroom.set("ENTITY", 9, 6, idleEntity)
 
-    let summonAnimation = new HexCastAnimation(summonerEntity, boxPlayerIn, [summonerEntity], 1000)
-    summonerEntity.animation = summonAnimation
-    summonerEntity.animation.start()
+    // let summonAnimation = new HexCastAnimation(summonerEntity, boxPlayerIn, [summonerEntity], 1000)
+    // summonerEntity.animation = summonAnimation
+    // summonerEntity.animation.start()
 
     // boxPlayerIn(summonerEntity)
 
