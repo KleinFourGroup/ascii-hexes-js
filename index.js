@@ -1668,7 +1668,10 @@ function enemyLogic() {
         console.log(`Enemy #${enemyInd}`)
         let enemy = enemies[enemyInd]
 
-        if (enemy.hasComponent("summoner")) {
+        if (hexroom.entities.indexOf(enemy) === -1) {
+            // Enemy died
+            acted = false
+        } else if (enemy.hasComponent("summoner")) {
             acted = summonerAI(enemy)
         } else {
             acted = false
