@@ -14,7 +14,8 @@ const COLORS = {
     "flourescent blue": "#15f4ee",
     "dark flourescent blue": "#034947",
     "neon red": "#FF3131", // Not happy with this one
-    "dark neon red": "#990000"
+    "dark neon red": "#990000",
+    "neon purple": "#9D00FF"
 }
 
 // Body
@@ -485,6 +486,7 @@ class HexRoom {
         this.grids["ENTITY"].parent = this
         
         this.entities = []
+        this.overlays = []
     }
 
     getCell(x, y) {
@@ -562,6 +564,9 @@ class HexRoom {
             if (oldval instanceof Entity) {
                 let index = this.entities.indexOf(oldval)
                 if (index > -1) this.entities.splice(index, 1)
+
+                index = this.overlays.indexOf(oldval.gui)
+                if (index > -1) this.overlays.splice(index, 1)
             }
         }
 
@@ -569,6 +574,7 @@ class HexRoom {
 
         if (layer == "ENTITY" && val instanceof Entity) {
             if (this.entities.indexOf(val) == -1) this.entities.push(val)
+            if (this.overlays.indexOf(val.gui) == -1) this.overlays.push(val.gui)
         }
     }
 
@@ -642,6 +648,10 @@ class HexRoom {
         this.grids["GROUND"].render()
         this.grids["TEXT"].render()
         this.grids["ENTITY"].render()
+
+        for (let overlay of this.overlays) {
+            overlay.render()
+        }
     }
 }
 
@@ -865,6 +875,40 @@ class SummonsComponent extends Component {
     }
 }
 
+class EntityOverlay {
+    constructor(entity) {
+        this.entity = entity
+
+        this.absX = 0
+        this.absY = 0
+    }
+
+    render() {
+        this.absX = this.entity.absX
+        this.absY = this.entity.absY
+
+        if (this.entity.hasComponent("summoner")) {
+            let summonComp = this.entity.getComponent("summoner")
+            let x = this.absX - 0.45 * EDGE
+            let y = this.absY + 0.9 * RISE
+            let frac = summonComp.mana / summonComp.maxMana
+            let oldwidth = ctx.lineWidth
+            ctx.strokeStyle = COLORS["flourescent blue"]
+            ctx.lineWidth = 3
+            ctx.beginPath()
+            ctx.moveTo(x, y)
+            ctx.lineTo(x + 0.9 * EDGE * frac, y)
+            ctx.stroke()
+            ctx.strokeStyle = COLORS["neon purple"]
+            ctx.beginPath()
+            ctx.moveTo(x + 0.9 * EDGE * frac, y)
+            ctx.lineTo(x + 0.9 * EDGE, y)
+            ctx.stroke()
+            ctx.lineWidth = oldwidth
+        }
+    }
+}
+
 class Entity {
     constructor(sprite, x = 0, y = 0) {
         this.sprite = sprite
@@ -876,6 +920,7 @@ class Entity {
         this.absY = this.y
 
         this.animation = null
+        this.gui = new EntityOverlay(this)
 
         this.components = {}
     }
@@ -1716,6 +1761,7 @@ function renderFrame() {
 
     hexroom.prerender()
     hexroom.render()
+    ctx.strokeStyle = COLORS["terminal green"]
     ctx.strokeRect(hexroom.x, hexroom.y, hexroom.pxWidth, hexroom.pxHeight)
     drawDots(50)
 
