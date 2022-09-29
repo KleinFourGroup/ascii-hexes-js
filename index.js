@@ -74,6 +74,8 @@ function playSpell() {
 
 // Initialization pane
 const pane = document.getElementById("pane")
+const inputSpan = document.getElementById("inputs")
+const inputSeed = document.getElementById("seed")
 
 // Mouse movement
 const mouseLoc = {
@@ -106,11 +108,98 @@ function getCorrectSize(height) {
 
 const FONT_SCALE = getFontScale()
 
+// RNG seeds!
+const urlArgString = window.location.search
+const urlArgs = new URLSearchParams(urlArgString)
+
+function randomString() {
+    const randChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    let ret = ""
+    for (let i = 0; i < 8; i++) {
+        let char = randChars.charAt(Math.floor(Math.random() * randChars.length))
+        ret += char
+    }
+
+    return ret
+}
+
+// Based off of 32-bit MurmurHash3 implemented by bryc (github.com/bryc)
+// See https://github.com/bryc/code/blob/master/jshash/hashes/murmurhash3.js
+// All I've done is unminify and rename variables
+// Original algorithm: https://en.wikipedia.org/wiki/MurmurHash#Algorithm
+function murmurHash(input, seed = 0) {
+    const product1 = 3432918353
+    const product2 = 461845907
+
+    let hash = seed | 0
+
+    let residue = input.length % 4
+    let roundLength = input.length - residue
+
+    for (let ind = 0; ind < roundLength; ind += 4) {
+        let chunk = input.charCodeAt(ind + 3) << 24
+        chunk |= input.charCodeAt(ind + 2) << 16
+        chunk |= input.charCodeAt(ind + 1) << 8
+        chunk |= input.charCodeAt(ind)
+
+        chunk = Math.imul(chunk, product1)
+        chunk = (chunk << 15) | (chunk >>> 17)
+
+        hash ^= Math.imul(chunk, product2)
+        hash = (hash << 13) | (hash >>> 19)
+
+        hash = Math.imul(hash, 5) + 3864292196 | 0
+    }
+
+    let chunk = 0
+    switch(residue) {
+        case 3: chunk ^= input.charCodeAt(roundLength + 2) << 16
+        case 2: chunk ^= input.charCodeAt(roundLength + 1) << 8
+        case 1: chunk ^= input.charCodeAt(roundLength)
+                chunk = Math.imul(chunk, product1)
+                chunk = (chunk << 15) | (chunk >>> 17)
+                hash ^= Math.imul(chunk, product2)
+    }
+
+    hash ^= input.length
+    hash ^= hash >>> 16
+    hash = Math.imul(hash, 2246822507)
+    hash ^= hash >>> 13
+    hash = Math.imul(hash, 3266489909)
+    hash ^= hash >>> 16
+
+    return hash >>> 0
+}
+
+
+// Based off of Mulberry32 implemented by bryc (github.com/bryc)
+// See https://github.com/bryc/code/blob/master/jshash/PRNGs.md#mulberry32
+// Again, all I've done is unminify and rename variables
+function mulberry32(state) {
+    function rng() {
+        state = (state + 0x6D2B79F5) | 0
+        let res = state
+        res = Math.imul(res ^ (res >>> 15), res | 1)
+        res ^= res + Math.imul(res ^ (res >>> 7), res | 61)
+        return ((res ^ (res >>> 14)) >>> 0) / 4294967296
+    }
+
+    return rng
+}
+
+let seedString = randomString()
+let seededRandom = Math.random
+
+if (urlArgs.has("seed")) seedString = urlArgs.get("seed")
+
+inputSeed.placeholder = seedString
+
+
 // Miscellania
 
 function shuffle(arr) {
     for (let ind = arr.length - 1; ind > 0; ind--) {
-        let swap = Math.floor(Math.random() * (ind + 1))
+        let swap = Math.floor(seededRandom() * (ind + 1))
         let temp = arr[ind]
         arr[ind] = arr[swap]
         arr[swap] = temp
@@ -176,6 +265,10 @@ let userHasInteracted = false
 
 function firstInteraction() {
     console.log("User interaction!")
+    if (inputSeed.value !== "") seedString = inputSeed.value
+    let seed = murmurHash(seedString)
+    seededRandom = mulberry32(seed)
+    console.log(`Seed: ${seedString}`)
     userHasInteracted = true
     bodyHTML.classList.add("no-cursor")
     // bodyHTML.style.cursor = "none"
@@ -188,6 +281,10 @@ function firstInteraction() {
 
 pane.addEventListener("click", (event) => {
     firstInteraction()
+})
+
+inputSpan.addEventListener("click", (event) => {
+    event.stopPropagation()
 })
 
 document.addEventListener("keydown", (event) => {
@@ -378,11 +475,11 @@ const HEX_DIRS = {
 
 function randomCell(numRows, numCols, parity) {
     while (true) {
-        let row = Math.floor(Math.random() * numRows)
+        let row = Math.floor(seededRandom() * numRows)
         let tog = (row + parity + 1) % 2
         let rowLength = Math.floor((numCols + tog) / 2)
         if (rowLength > 0) {
-            let colIndex = Math.floor(Math.random() * rowLength)
+            let colIndex = Math.floor(seededRandom() * rowLength)
             let col = 2 * colIndex + (row + parity) % 2
 
             return makeCoordinate(row, col)
@@ -804,7 +901,7 @@ class HexGraph {
                 }
             }
 
-            let nextVertex = candidates[Math.floor(Math.random() * candidates.length)]
+            let nextVertex = candidates[Math.floor(seededRandom() * candidates.length)]
             path.unshift(makeCoordinate(nextVertex.row, nextVertex.col))
             currVertex = nextVertex
         }
@@ -1610,7 +1707,7 @@ function summonerAI(enemy) {
     let numEnts = summonComp.limit
 
     summonComp.addMana(1)
-    console.log(`Enemy: summoner/${summonComp.children.length}/${summonComp.mana}`)
+    // console.log(`Enemy: summoner/${summonComp.children.length}/${summonComp.mana}`)
 
     if (isPlayerExposed() && summonComp.mana >= 10) {
         let summonAnimation = new HexCastAnimation(enemy, boxPlayerIn, [enemy], 1000)
@@ -1638,7 +1735,7 @@ function summonerAI(enemy) {
         } while (!foundEmpty)
     } else {
         let dirs = Object.keys(HEX_DIRS)
-        let destDir = HEX_DIRS[dirs[Math.floor(Math.random() * dirs.length)]]
+        let destDir = HEX_DIRS[dirs[Math.floor(seededRandom() * dirs.length)]]
         let dest = makeCoordinate(enemy.row + destDir.row, enemy.col + destDir.col)
     
         if (hexroom.isEmpty(dest.row, dest.col)) {
@@ -1665,7 +1762,7 @@ function enemyLogic() {
     let acted = false
 
     while (enemyInd < enemies.length && !acted) {
-        console.log(`Enemy #${enemyInd}`)
+        // console.log(`Enemy #${enemyInd}`)
         let enemy = enemies[enemyInd]
 
         if (hexroom.entities.indexOf(enemy) === -1) {
@@ -1696,9 +1793,9 @@ function playerLogic() {
         destLoc = makeCoordinate(null, null)
 
         let dirs = Object.keys(HEX_DIRS)
-        let destDir = HEX_DIRS[dirs[Math.floor(Math.random() * dirs.length)]]
+        let destDir = HEX_DIRS[dirs[Math.floor(seededRandom() * dirs.length)]]
     
-        // let dest = destCells[Math.floor(Math.random() * destCells.length)]
+        // let dest = destCells[Math.floor(seededRandom() * destCells.length)]
         let dest = makeCoordinate(player.row + destDir.row, player.col + destDir.col)
     
         if (hexroom.isEmpty(dest.row, dest.col)) {
@@ -1766,6 +1863,14 @@ function renderFrame() {
     hexroom.render()
     ctx.strokeStyle = COLORS["terminal green"]
     ctx.strokeRect(hexroom.x, hexroom.y, hexroom.pxWidth, hexroom.pxHeight)
+
+
+    ctx.textBaseline = "bottom"
+    ctx.textAlign = "center"
+
+    ctx.font = `${2}em monospace`
+    ctx.fillText(`Seed: ${seedString}`, Math.floor(canvas.width / 2), hexroom.y)
+
     drawDots(50)
 
     if (mouseLoc.x !== null && mouseLoc.y !== null) {

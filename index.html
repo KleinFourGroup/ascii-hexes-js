@@ -25,16 +25,44 @@
                 height: 100%;
 
                 background: #282828;
-                color: #33FF00;
+                font-family: monospace;
                 text-align: center;
-                font-size: 5em;
             }
 
-            .init-pane p {
+            /* .init-pane p {
                 position: relative;
                 margin: 0;
                 top: 50%;
                 transform: translateY(-50%)
+            } */
+
+            .centered {
+                position: absolute;
+                margin: 0;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%)
+            }
+
+            .centered p {
+                margin: 0;
+                font-size: 5em;
+                color: #33FF00;
+            }
+
+            .input-span {
+                font-size: 2em;
+                color: #FFB000;
+            }
+
+            /* Does this not inherit?? */
+            input[type="text"] {
+                border-color: #FFB000;
+                outline: none;
+                color: #FFB000;
+                font-size: 1em;
+                font-family: monospace;
+                background-color: #664600;
             }
 
             .no-cursor {
@@ -42,7 +70,13 @@
             }
         </style>
         <div class="init-pane" id="pane">
-            <p>Click to initialize</p>
+            <div class="centered">
+                <p>Click to initialize</p>
+                <span id="inputs" class="input-span">
+                    <label>Seed: </label>
+                    <input id="seed" type="text" size="10" placeholder="">
+                </span>
+            </div>
         </div>
         <div class="resources">
             <audio id="background_music" src="./media/Retro Dreamscape - Twin Musicom.mp3"></audio>
